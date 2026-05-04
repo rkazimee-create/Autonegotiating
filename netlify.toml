@@ -1,0 +1,40 @@
+[build]
+  publish = "."
+  functions = "netlify/functions"
+
+[[redirects]]
+  from = "/api/inventory"
+  to = "/.netlify/functions/inventory"
+  status = 200
+
+[[redirects]]
+  from = "/api/deal-intelligence"
+  to = "/.netlify/functions/deal-intelligence"
+  status = 200
+
+[[redirects]]
+  from = "/api/vehicle-intelligence"
+  to = "/.netlify/functions/vehicle-intelligence"
+  status = 200
+
+[[redirects]]
+  from = "/api/comparables"
+  to = "/.netlify/functions/comparables"
+  status = 200
+
+[[redirects]]
+  from = "/api/trims"
+  to = "/.netlify/functions/trims"
+  status = 200
+
+[[redirects]]
+  from = "/api/vin-decode"
+  to = "/.netlify/functions/vin-decode"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
