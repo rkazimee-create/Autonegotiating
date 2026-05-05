@@ -28,22 +28,54 @@ exports.handler = async (event) => {
   const priceRef = msrp > 0 ? ' listed at ' + fmt(msrp) : '';
   const vinStr = vin ? ' (VIN: ' + vin + ')' : '';
 
-  const fairValueSearch = isUsed
-    ? 'Search KBB.com, Edmunds.com, and CarGurus.com for the fair market value of this ' + condStr + ' ' + vehicle + mileageStr + '. Find the private party value, dealer retail value, and trade-in value ranges. Also check Carfax for any reported accidents or issues if VIN is available.'
-    : 'Search for current dealer pricing and any manufacturer incentives for the new ' + vehicle + '.';
+  const vq = condStr + ' ' + vehicle + mileageStr;
+  const yr = new Date().getFullYear();
 
-  const usedContext = isUsed
-    ? 'This is a ' + condStr + ' vehicle' + mileageStr + vinStr + '. ' + fairValueSearch + ' Factor depreciation and mileage into offer strategy.'
-    : 'This is a NEW vehicle. Check for current dealer markups/discounts and manufacturer incentives.';
+  const searches = isUsed ? [
+    vehicle + ' fair purchase price OR fair market value site:kbb.com',
+    vehicle + ' average listing price OR market average site:cargurus.com',
+    vehicle + ' true market value OR TMV site:edmunds.com',
+  ] : [
+    vehicle + ' fair purchase price OR dealer retail value site:kbb.com',
+    vehicle + ' average listing price OR market average site:cargurus.com',
+    vehicle + ' true market value TMV OR incentives site:edmunds.com',
+  ];
 
-  const jsonTemplate = '{"summary":"2-3 sentences","fairMarketValue":{"kbb":{"privateParty":0,"dealerRetail":0,"tradeIn":0},"edmunds":{"tmv":0}},"deals":[{"source":"Reddit","price":0,"description":"brief","tags":["tag"]}],"marketStats":{"avgTransactionPrice":0,"lowestReported":0,"highestReported":0,"avgDiscountOffMsrp":0,"avgDiscountPercent":0,"bestMonthToBuy":"Month","daysOnLot":"30"},"offerStrategy":{"aggressive":{"price":0,"label":"Aggressive","desc":"brief"},"recommended":{"price":0,"label":"Recommended","desc":"brief"},"safe":{"price":0,"label":"Safe","desc":"brief"}},"negotiationTips":["tip1","tip2","tip3"],"sources":["source1"]}';
+  // Template uses only empty/zero placeholders — no instructional text the model might imitate
+  const jsonTemplate = JSON.stringify({
+    summary: '',
+    fairMarketValue: { kbb: { dealerRetail: 0 }, edmunds: { tmv: 0 }, cargurus: { avgListing: 0 } },
+    deals: [
+      { source: 'KBB',      price: 0, description: '', url: '', tags: [] },
+      { source: 'CarGurus', price: 0, description: '', url: '', tags: [] },
+      { source: 'Edmunds',  price: 0, description: '', url: '', tags: [] },
+    ],
+    marketStats: { avgTransactionPrice: 0, lowestReported: 0, highestReported: 0, avgDiscountOffMsrp: 0, avgDiscountPercent: 0, bestMonthToBuy: '', daysOnLot: '' },
+    offerStrategy: {
+      aggressive:   { price: 0, label: 'Aggressive',   desc: '' },
+      recommended:  { price: 0, label: 'Recommended',  desc: '' },
+      safe:         { price: 0, label: 'Safe',         desc: '' },
+    },
+    negotiationTips: ['', '', '', '', ''],
+    sources: [],
+  });
 
-  const prompt = [
-    'You are an automotive deal intelligence agent.',
-    'Do up to 3 web searches to find: fair market value (KBB/Edmunds) and real transaction prices (Reddit r/askcarsales, Edmunds forums) for a ' + condStr + ' ' + vehicle + mileageStr + (priceRef ? ', ' + priceRef : '') + (vinStr || '') + '.',
-    'Purchase type: ' + (purchaseType || 'cash') + '. ' + usedContext,
-    'Return ONLY a JSON object matching this structure (no markdown): ' + jsonTemplate
-  ].join(' ');
+  const prompt = `You are an automotive deal intelligence agent researching the ${condStr} ${vehicle}${mileageStr}${priceRef ? ', ' + priceRef : ''}${vinStr}. Purchase type: ${purchaseType || 'cash'}.
+
+STEP 1 — Run this web search: ${searches[0]}
+STEP 2 — Run this web search: ${searches[1]}
+STEP 3 — Run this web search: ${searches[2]}
+
+After completing all searches, fill in the JSON below using ONLY information found in the search results. Rules:
+- "summary": 3-4 sentences summarizing what you actually found about this specific vehicle's market and pricing.
+- "deals": There are exactly 3 slots, one per source (KBB, CarGurus, Edmunds). For each, find a REAL pricing insight or buyer report from that source. "price" = the dollar amount shown or paid, "description" = 2-3 sentences describing what that source shows for this vehicle — quote the actual figure, market rating, or buyer experience found in search results. "url" = the actual page URL. Leave description empty only if you found absolutely nothing for that source.
+- "fairMarketValue": Fill kbb.dealerRetail from KBB fair purchase price or dealer retail, edmunds.tmv from Edmunds True Market Value, cargurus.avgListing from CarGurus average listing price. Leave at 0 only if not found.
+- "marketStats": Fill with real aggregated data from search results.
+- "offerStrategy": Based on the real data found, recommend specific dollar amounts for this vehicle.
+- "negotiationTips": Write tips specific to buying a ${vehicle} — reference what you found in the searches (e.g. specific incentives, dealer behavior patterns, regional pricing).
+- "sources": List the actual URLs you found useful.
+
+Return ONLY the completed JSON (no markdown, no explanation): ${jsonTemplate}`;
 
   try {
     const res = await fetch('https://api.anthropic.com/v1/messages', {
@@ -55,8 +87,9 @@ exports.handler = async (event) => {
         'anthropic-beta': 'web-search-2025-03-05',
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1500,
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        system: 'You are an automotive deal intelligence agent. You MUST use web search to find real data before answering. NEVER fabricate quotes, deals, or prices from your training data. If a web search returns no results for a source, leave that deal entry blank. Every "description" field must be based on something you actually found in a web search result — quote or paraphrase the real post. Identical or generic descriptions like "Reported getting about 3-4% off MSRP" are unacceptable.',
         tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 3 }],
         messages: [{ role: 'user', content: prompt }],
       }),
@@ -65,8 +98,10 @@ exports.handler = async (event) => {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error?.message || 'Anthropic error ' + res.status);
 
-    const textBlock = data.content?.find(b => b.type === 'text');
-    const raw = textBlock?.text || '';
+    // Model emits a short text block before searches, then the JSON in a final text block.
+    // Use the last text block so we get the JSON, not the pre-search commentary.
+    const textBlocks = (data.content || []).filter(b => b.type === 'text');
+    const raw = textBlocks.map(b => b.text).join('');
 
     let parsed = null;
     try {
