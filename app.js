@@ -103,6 +103,7 @@ function normalizeListing(l, idx) {
     fuel:        l.fuelType || '',
     bodyStyle:   l.bodyStyle || l.bodyType || '',
     carfaxUrl:   l.carfaxUrl || null,
+    history:     l.history   || null,
     isLive:      true,
   };
 }
@@ -600,12 +601,14 @@ async function runSearch(page = 1) {
   if (minPrice)  params['minPrice']  = minPrice;
   if (maxPrice)  params['maxPrice']  = maxPrice;
   if (bodyStyle) params['bodyStyle'] = bodyStyle;
+  if (minYear)   params['minYear']   = minYear;
+  if (maxYear)   params['maxYear']   = maxYear;
 
   setLoading(true);
   clearError();
 
   try {
-    const fetchLimit = condition ? 100 : PAGE_SIZE;
+    const fetchLimit = (condition || minYear || maxYear || trim) ? 100 : PAGE_SIZE;
     const data = await fetchInventory(params, page, fetchLimit);
     const records = data.data || data.listings || data.records || [];
     totalResultCount = data.totalCount || records.length;
@@ -634,10 +637,16 @@ async function runSearch(page = 1) {
         }
       }
 
-      // Client-side condition filtering (v2 API doesn't support this as a query param)
+      // Client-side condition filtering
       if (condition) {
         normalized = normalized.filter(function(c) { return c.condition === condition; });
       }
+
+      // Client-side year filtering (fallback in case API ignores minYear/maxYear)
+      const minYearInt = parseInt(minYear) || 0;
+      const maxYearInt = parseInt(maxYear) || 9999;
+      if (minYearInt) normalized = normalized.filter(function(c) { return c.year >= minYearInt; });
+      if (maxYearInt < 9999) normalized = normalized.filter(function(c) { return c.year <= maxYearInt; });
 
       allCars = normalized;
       isLiveData = true;
@@ -776,7 +785,7 @@ function renderGrid() {
         </div>
         <div class="card-actions">
           <button class="offer-btn" onclick="event.stopPropagation();openOffer(${escHtml(JSON.stringify(String(car.id)))})">Make an Offer </button>
-          <a class="intel-btn" href="/deal-intelligence.html?${new URLSearchParams({vin:car.vin||'',year:car.year,make:car.name.split(' ')[0],model:car.name.split(' ').slice(1).join(' '),trim:car.trim||'',price:car.msrp||0,mileage:car.mileageRaw||0,condition:car.condition==='certified'?'cpo':(car.condition||'used')}).toString()}" onclick="event.stopPropagation()"> Intel</a>
+          <a class="intel-btn" href="/deal-intelligence.html?${new URLSearchParams(Object.assign({vin:car.vin||'',year:car.year,make:car.name.split(' ')[0],model:car.name.split(' ').slice(1).join(' '),trim:car.trim||'',price:car.msrp||0,mileage:car.mileageRaw||0,condition:car.condition==='certified'?'cpo':(car.condition||'used')},car.history?{accidents:car.history.accidentCount||0,oneOwner:car.history.oneOwner?'1':'0',ownerCount:car.history.ownerCount||0,personalUse:car.history.personalUse?'1':'0',usageType:car.history.usageType||''}:{})).toString()}" onclick="event.stopPropagation()"> Intel</a>
         </div>
       </div>
     </div>`;
@@ -871,12 +880,19 @@ async function openDetail(carId) {
   if (intelBtn && detailCar.vin) {
     const make  = detailCar.name.split(' ')[0];
     const model = detailCar.name.split(' ').slice(1).join(' ');
-    intelBtn.href = '/deal-intelligence.html?' + new URLSearchParams({
+    const historyParams = detailCar.history ? {
+      accidents: detailCar.history.accidentCount || 0,
+      oneOwner: detailCar.history.oneOwner ? '1' : '0',
+      ownerCount: detailCar.history.ownerCount || 0,
+      personalUse: detailCar.history.personalUse ? '1' : '0',
+      usageType: detailCar.history.usageType || '',
+    } : {};
+    intelBtn.href = '/deal-intelligence.html?' + new URLSearchParams(Object.assign({
       vin: detailCar.vin, year: detailCar.year, make, model,
       trim: detailCar.trimRaw || '', price: detailCar.msrp || 0,
       mileage: detailCar.mileageRaw || 0,
       condition: detailCar.condition === 'certified' ? 'cpo' : (detailCar.condition || 'used'),
-    }).toString();
+    }, historyParams)).toString();
   }
 
   // Photo gallery

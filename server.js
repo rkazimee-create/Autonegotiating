@@ -44,6 +44,7 @@ const API_ROUTES = {
   '/api/comparables':          'comparables',
   '/api/trims':               'trims',
   '/api/vin-decode':          'vin-decode',
+  '/api/vin-data':            'vin-data',
 };
 
 function readBody(req) {

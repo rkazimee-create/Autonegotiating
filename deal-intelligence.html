@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Deal Intelligence  AutoNegotiating.com</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -169,6 +171,9 @@ nav{background:var(--white);border-bottom:1px solid var(--border);padding:0 2rem
 
 footer{border-top:1px solid var(--border);padding:1.5rem 2rem;text-align:center;color:var(--ink3);font-size:12px;background:var(--white)}
 footer a{color:var(--orange);text-decoration:none}
+.pdf-btn{display:inline-flex;align-items:center;gap:8px;background:var(--ink);color:white;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;border:none;padding:12px 22px;border-radius:var(--radius-sm);cursor:pointer;transition:background 0.15s;margin-bottom:1.5rem}
+.pdf-btn:hover:not(:disabled){background:#2d2d2b}
+.pdf-btn:disabled{opacity:0.5;cursor:not-allowed}
 
 @media(max-width:640px){
   .form-grid{grid-template-columns:1fr}
@@ -335,6 +340,13 @@ footer a{color:var(--orange);text-decoration:none}
       <div class="comparables-grid" id="comparables-grid" style="display:none"></div>
     </div>
 
+    <div id="pdf-wrap" style="display:none">
+      <button class="pdf-btn" id="pdf-btn" onclick="generatePDF()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="12" x2="12" y2="18"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+        Download Full PDF Report
+      </button>
+    </div>
+
     <div class="sources-section">
       <div class="sources-title">Sources Analyzed</div>
       <div class="sources-list" id="sources-list"></div>
@@ -356,6 +368,11 @@ const STEPS = [
 ];
 
 let recommendedOffer = null;
+let lastParsed = null;
+let lastComparables = null;
+let lastVehicleLabel = '';
+let lastMsrp = 0;
+let lastVinData = null;
 
 function showStep(idx, state) {
   const steps = document.getElementById('thinking-steps');
@@ -407,6 +424,7 @@ async function runAnalysis() {
   document.getElementById('error-box').style.display = 'none';
   document.getElementById('results').style.display = 'none';
   document.getElementById('stream-card').style.display = 'none';
+  lastVinData = null;
 
   const btn = document.getElementById('analyze-btn');
   btn.disabled = true;
@@ -451,6 +469,7 @@ async function runAnalysis() {
     const milVal = parseFloat(document.getElementById('car-mileage').value) || 0;
     const trimVal = document.getElementById('car-trim').value.trim();
     fetchComparables(makeVal, modelVal, condVal, milVal, msrp, parseInt(yearVal) || 0, trimVal);
+    if (window._currentVin) fetchVinData(window._currentVin);
 
   } catch(e) {
     document.getElementById('thinking-bar').style.display = 'none';
@@ -483,9 +502,13 @@ function extractJSON(text) {
 }
 
 function renderResults(data, vehicleLabel, msrp, purchaseType) {
+  lastParsed = data;
+  lastVehicleLabel = vehicleLabel;
+  lastMsrp = msrp;
   document.getElementById('thinking-bar').style.display = 'none';
   document.getElementById('stream-card').style.display = 'none';
   document.getElementById('results').style.display = 'block';
+  document.getElementById('pdf-wrap').style.display = 'block';
 
   const strat = data.offerStrategy;
   document.getElementById('offer-title').innerHTML =
@@ -512,17 +535,29 @@ function renderResults(data, vehicleLabel, msrp, purchaseType) {
   document.getElementById('offer-rationale').textContent = data.summary || '';
   recommendedOffer = { price: strat.recommended.price, vehicle: vehicleLabel, purchaseType };
 
-  document.getElementById('deal-reports').innerHTML = (data.deals||[]).slice(0,5).map(d => `
+  const fmv = data.fairMarketValue || {};
+  const realDeals = (data.deals||[]).filter(d => d.description && d.description.trim());
+  document.getElementById('deal-reports').innerHTML = realDeals.length ? realDeals.slice(0,5).map(d => {
+    let price = d.price || 0;
+    if (!price) {
+      const src = (d.source||'').toLowerCase();
+      if (src.includes('edmunds') && fmv.edmunds?.tmv)       price = fmv.edmunds.tmv;
+      else if (src.includes('kbb') && fmv.kbb?.dealerRetail) price = fmv.kbb.dealerRetail;
+      else if (src.includes('kbb') && fmv.kbb?.privateParty) price = fmv.kbb.privateParty;
+      else if (src.includes('cargurus') && fmv.edmunds?.tmv) price = fmv.edmunds.tmv;
+    }
+    return `
     <div class="deal-report">
       <div class="deal-report-header">
         <span class="deal-report-source">${escHtml(d.source)}</span>
-        <span class="deal-price-tag">${fmt(d.price)}</span>
+        <span class="deal-price-tag">${price ? fmt(price) : ''}</span>
       </div>
       <div class="deal-report-text">"${escHtml(d.description)}"</div>
       <div class="deal-report-meta">
         ${(d.tags||[]).map((t,i)=>`<span class="deal-meta-pill ${i===0?'pill-green':i===1?'pill-blue':'pill-yellow'}">${escHtml(t)}</span>`).join('')}
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('') : '<p style="color:var(--ink3);font-size:0.875rem;padding:0.5rem 0">No community deal reports found for this vehicle. Try adding more detail (year, trim) and running again.</p>';
 
   const ms = data.marketStats;
   document.getElementById('market-stats').innerHTML = `
@@ -534,7 +569,7 @@ function renderResults(data, vehicleLabel, msrp, purchaseType) {
     <div class="stat-row"><span class="stat-row-label">Avg days on lot</span><span class="stat-row-val">${escHtml(ms.daysOnLot)} days</span></div>`;
 
   // Render fair market value if available
-  const fmv = data.fairMarketValue;
+  // fmv already declared above
   const fmvSection = document.getElementById('fmv-section');
   const fmvGrid = document.getElementById('fmv-grid');
   if (fmv && (fmv.kbb || fmv.edmunds)) {
@@ -548,8 +583,12 @@ function renderResults(data, vehicleLabel, msrp, purchaseType) {
         const badge = diff > 1000 ? '<span class="fmv-badge bad">Above KBB</span>' : diff < -1000 ? '<span class="fmv-badge good">Below KBB</span>' : '<span class="fmv-badge warn">At KBB</span>';
         fmvCards.push('<div class="fmv-card"><div class="fmv-source">KBB</div><div class="fmv-type">Dealer Retail</div><div class="fmv-val highlight">' + fmt(fmv.kbb.dealerRetail) + '</div>' + (listedPrice ? badge : '') + '</div>');
       }
-      if (fmv.kbb.privateParty) fmvCards.push('<div class="fmv-card"><div class="fmv-source">KBB</div><div class="fmv-type">Private Party</div><div class="fmv-val">' + fmt(fmv.kbb.privateParty) + '</div></div>');
-      if (fmv.kbb.tradeIn) fmvCards.push('<div class="fmv-card"><div class="fmv-source">KBB</div><div class="fmv-type">Trade-In</div><div class="fmv-val">' + fmt(fmv.kbb.tradeIn) + '</div></div>');
+    }
+
+    if (fmv.cargurus && fmv.cargurus.avgListing) {
+      const diff = listedPrice ? listedPrice - fmv.cargurus.avgListing : 0;
+      const badge = diff > 1000 ? '<span class="fmv-badge bad">Above Avg</span>' : diff < -1000 ? '<span class="fmv-badge good">Below Avg</span>' : '<span class="fmv-badge warn">At Avg</span>';
+      fmvCards.push('<div class="fmv-card"><div class="fmv-source">CarGurus</div><div class="fmv-type">Avg Listing Price</div><div class="fmv-val">' + fmt(fmv.cargurus.avgListing) + '</div>' + (listedPrice ? badge : '') + '</div>');
     }
 
     if (fmv.edmunds && fmv.edmunds.tmv) {
@@ -642,7 +681,18 @@ async function fetchComparables(make, model, condition, mileage, price, year, tr
   }
 }
 
+async function fetchVinData(vin) {
+  try {
+    const res = await fetch('/api/vin-data?vin=' + encodeURIComponent(vin));
+    if (!res.ok) return;
+    lastVinData = await res.json();
+  } catch(e) {
+    console.warn('VIN data fetch failed:', e.message);
+  }
+}
+
 function renderComparables(data, targetPrice, targetMileage) {
+  lastComparables = data;
   const loading = document.getElementById('comp-loading');
   const grid = document.getElementById('comparables-grid');
   const posEl = document.getElementById('market-position');
@@ -1255,6 +1305,491 @@ document.getElementById('car-make').addEventListener('change', function() {
 });
 document.getElementById('car-model').addEventListener('change', populateTrims);
 
+async function generatePDF() {
+  if (!lastParsed) { alert('Please run an analysis first.'); return; }
+  const btn = document.getElementById('pdf-btn');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0"/></svg> Generating...';
+
+  try {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'letter' });
+    const C = {
+      orange:[201,94,26], ink:[26,26,24], ink2:[74,74,70], ink3:[138,138,132],
+      white:[255,255,255], cream:[250,250,247], green:[29,158,117],
+      blue:[24,95,165], border:[232,232,226],
+    };
+    const PW=215.9, PH=279.4, M=14, CW=PW-2*M;
+    let y=0;
+
+    const yearVal  = document.getElementById('car-year').value;
+    const makeVal  = document.getElementById('car-make').value;
+    const modelVal = document.getElementById('car-model').value;
+    const condVal  = document.getElementById('car-condition').value;
+    const milVal   = parseFloat(document.getElementById('car-mileage').value)||0;
+    const vin      = window._currentVin||'';
+    const dateStr  = new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+    const origin   = window.location.origin;
+
+    function newPage(){ doc.addPage(); y=M; }
+    function chk(h=20){ if(y+h>PH-14) newPage(); }
+    function sty(f,sz,col){ doc.setFont('helvetica',f); doc.setFontSize(sz); doc.setTextColor(...col); }
+    function band(title){
+      chk(14);
+      doc.setFillColor(...C.orange); doc.rect(M,y,CW,7.5,'F');
+      sty('bold',8.5,C.white); doc.text(title,M+3.5,y+5.3);
+      y+=11;
+    }
+
+    // Build vehicle-specific source URLs
+    function sourceUrl(src){
+      const sl=(src||'').toLowerCase();
+      const vq=encodeURIComponent(lastVehicleLabel);
+      const mk=makeVal.toLowerCase().replace(/\s+/g,'-');
+      const mo=modelVal.toLowerCase().replace(/\s+/g,'-');
+      if(sl.includes('reddit')&&sl.includes('askcarsales')) return 'https://www.reddit.com/r/askcarsales/search/?q='+vq+'&restrict_sr=1&sort=relevance';
+      if(sl.includes('reddit')&&sl.includes('personal')) return 'https://www.reddit.com/r/personalfinance/search/?q='+vq+'&restrict_sr=1';
+      if(sl.includes('reddit')) return 'https://www.reddit.com/search/?q='+vq;
+      if(sl.includes('edmunds')) return 'https://www.edmunds.com/'+mk+'/'+mo+'/'+yearVal+'/review/';
+      if(sl.includes('cargurus')) return 'https://www.cargurus.com/Cars/new/nl-'+makeVal.replace(/\s+/g,'-')+'-'+modelVal.replace(/\s+/g,'-')+'-d'+yearVal;
+      if(sl.includes('kbb')||sl.includes('kelly')) return 'https://www.kbb.com/'+mk+'/'+mo+'/'+yearVal+'/';
+      if(sl.includes('truecar')) return 'https://www.truecar.com/prices-new/'+mk+'/'+mo+'/';
+      return 'https://www.google.com/search?q='+vq+'+'+encodeURIComponent(src)+'+price+paid';
+    }
+
+    // ── HEADER ──
+    doc.setFillColor(...C.orange); doc.rect(0,0,PW,22,'F');
+    sty('bold',16,C.white); doc.text('AutoNegotiating.com',M,11);
+    sty('normal',8.5,[255,220,190]); doc.text('DEAL INTELLIGENCE REPORT',M,17);
+    sty('normal',8,[255,220,190]); doc.text(dateStr,PW-M,11,{align:'right'});
+    doc.link(M,2,80,18,{url:'https://autonegotiating.com'});
+    y=28;
+
+    // ── VEHICLE BOX ──
+    doc.setFillColor(...C.cream); doc.setDrawColor(...C.border); doc.setLineWidth(0.3);
+    doc.rect(M,y,CW,28,'FD');
+    sty('bold',13,C.ink); doc.text(lastVehicleLabel||'Vehicle',M+4,y+9);
+    const dcols=[
+      ['Listed Price', lastMsrp>0?'$'+Math.round(lastMsrp).toLocaleString():'—'],
+      ['Mileage', milVal>0?Math.round(milVal).toLocaleString()+' mi':'N/A'],
+      ['Condition', condVal==='cpo'?'Certified Pre-Owned':condVal==='used'?'Used':'New'],
+      ['VIN', vin||'—'],
+    ];
+    const colW=CW/4;
+    dcols.forEach(([lbl,val],i)=>{
+      const cx=M+4+i*colW;
+      sty('normal',7,C.ink3); doc.text(lbl,cx,y+17);
+      sty('bold',9,C.ink); doc.text(String(val),cx,y+22);
+    });
+    y+=32;
+
+    // ── VEHICLE SPECIFICATIONS ──
+    if(lastVinData && lastVinData.specs){
+      const sp=lastVinData.specs;
+      const sv=lastVinData.vehicle||{};
+      chk(30); band('VEHICLE SPECIFICATIONS');
+      const spRows=[];
+      if(sp.name)                           spRows.push(['Trim / Style',sp.name]);
+      if(sp.price&&sp.price.baseMsrp)       spRows.push(['Base MSRP','$'+Math.round(sp.price.baseMsrp).toLocaleString()]);
+      if(sp.price&&sp.price.baseInvoice)    spRows.push(['Base Invoice','$'+Math.round(sp.price.baseInvoice).toLocaleString()]);
+      if(sp.totalSeating)                   spRows.push(['Seating Capacity',sp.totalSeating+' passengers']);
+      if(sp.mpg)                            spRows.push(['Fuel Economy',sp.mpg]);
+      if(sp.horsepower)                     spRows.push(['Horsepower',sp.horsepower+' hp']);
+      if(sp.torque)                         spRows.push(['Torque',sp.torque+' lb-ft']);
+      if(sp.payload)                        spRows.push(['Payload',sp.payload]);
+      if(sv.manufacturer)                   spRows.push(['Manufacturer',sv.manufacturer]);
+      if(spRows.length){
+        doc.autoTable({
+          startY:y, margin:{left:M,right:M},
+          body:spRows, theme:'plain',
+          styles:{fontSize:9,cellPadding:3},
+          columnStyles:{0:{textColor:C.ink3,cellWidth:80},1:{textColor:C.ink,fontStyle:'bold'}},
+          alternateRowStyles:{fillColor:C.cream},
+        });
+        y=doc.lastAutoTable.finalY+4;
+      }
+      // Exterior colors
+      const extColors=(sp.color&&sp.color.exterior)||[];
+      if(extColors.length){
+        chk(16);
+        sty('normal',8,C.ink3); doc.text('Available Exterior Colors:',M+3,y); y+=5;
+        let cx=M+3;
+        extColors.forEach(function(col){
+          const rgb=col.rgb?col.rgb.split(',').map(Number):[180,180,180];
+          doc.setFillColor(...rgb); doc.circle(cx+2,y-1,2,'F');
+          sty('normal',7.5,C.ink2); doc.text(col.name,cx+6,y);
+          cx+=doc.getTextWidth(col.name)+14;
+          if(cx>PW-M-20){ cx=M+3; y+=5; chk(6); }
+        });
+        y+=8;
+      }
+    }
+
+    // ── VEHICLE HISTORY (Carfax summary) ──
+    const hist = window._listingHistory || null;
+    if(hist){
+      chk(20); band('VEHICLE HISTORY SUMMARY');
+      const noAcc = hist.accidentCount === 0;
+      const histRows = [
+        ['Reported Accidents', hist.accidentCount === 0 ? 'None reported' : hist.accidentCount + ' accident(s) reported'],
+        ['Number of Owners',   hist.ownerCount > 0 ? String(hist.ownerCount) : 'Unknown'],
+        ['Single Owner',       hist.oneOwner ? 'Yes — 1 owner' : 'No'],
+        ['Usage Type',         hist.usageType || 'Unknown'],
+        ['Personal Use',       hist.personalUse ? 'Yes' : 'No'],
+      ].filter(r => r[1] && r[1] !== 'Unknown');
+      doc.autoTable({
+        startY:y, margin:{left:M,right:M},
+        body:histRows, theme:'plain',
+        styles:{fontSize:9,cellPadding:3},
+        columnStyles:{0:{textColor:C.ink3,cellWidth:70},1:{textColor:noAcc?C.green:C.orange,fontStyle:'bold'}},
+        alternateRowStyles:{fillColor:C.cream},
+      });
+      y=doc.lastAutoTable.finalY+3;
+      if(vin){
+        sty('normal',8,C.ink3);
+        doc.text('Source: Carfax via auto.dev  •  Full report: ',M+3,y);
+        const cfx='https://www.carfax.com/VehicleHistory/p/Report.cfx?vin='+vin+'&partner=FRD_2';
+        sty('bold',8,C.blue);
+        const cfxLabel='View Carfax Report ↗';
+        const cfxX=M+3+doc.getTextWidth('Source: Carfax via auto.dev  •  Full report: ');
+        doc.text(cfxLabel,cfxX,y);
+        doc.link(cfxX,y-4,doc.getTextWidth(cfxLabel),5,{url:cfx});
+        y+=8;
+      }
+      y+=4;
+    }
+
+    // ── OFFER STRATEGY ──
+    band('RECOMMENDED OFFER STRATEGY');
+    const strat=lastParsed.offerStrategy;
+    const tW=(CW-4)/3;
+    const tierData=[
+      {...strat.aggressive,accent:false,badge:null},
+      {...strat.recommended,accent:true,badge:'RECOMMENDED'},
+      {...strat.safe,accent:false,badge:null},
+    ];
+    // Calculate max tier height dynamically
+    let maxTierH=36;
+    tierData.forEach(tier=>{
+      const dl=doc.splitTextToSize(tier.desc||'',tW-10);
+      const h=36+dl.length*4.2;
+      if(h>maxTierH) maxTierH=h;
+    });
+    chk(maxTierH+10);
+    tierData.forEach((tier,i)=>{
+      const tx=M+i*(tW+2);
+      doc.setFillColor(tier.accent?255:250,tier.accent?240:250,tier.accent?232:247);
+      doc.setDrawColor(...(tier.accent?C.orange:C.border)); doc.setLineWidth(tier.accent?0.5:0.25);
+      doc.rect(tx,y,tW,maxTierH,'FD');
+      let ty=y+7;
+      if(tier.badge){ sty('bold',7,C.orange); doc.text(tier.badge,tx+tW/2,ty,{align:'center'}); ty+=5; }
+      sty('normal',7,C.ink3); doc.text((tier.label||'').toUpperCase(),tx+tW/2,ty,{align:'center'}); ty+=6;
+      sty('bold',14,tier.accent?C.orange:C.ink); doc.text('$'+Math.round(tier.price||0).toLocaleString(),tx+tW/2,ty,{align:'center'}); ty+=7;
+      sty('normal',7,C.ink2);
+      const dl=doc.splitTextToSize(tier.desc||'',tW-10);
+      doc.text(dl,tx+4,ty);
+    });
+    y+=maxTierH+6;
+
+    // ── AI SUMMARY ──
+    if(lastParsed.summary){
+      chk(20); band('AI ANALYSIS SUMMARY');
+      sty('normal',9,C.ink2);
+      const sl=doc.splitTextToSize(lastParsed.summary,CW-6);
+      doc.text(sl,M+3,y); y+=sl.length*5+8;
+    }
+
+    // ── MARKET STATS ──
+    const ms=lastParsed.marketStats;
+    if(ms){
+      chk(55); band('MARKET STATISTICS');
+      doc.autoTable({
+        startY:y, margin:{left:M,right:M},
+        body:[
+          ['Average Transaction Price','$'+Math.round(ms.avgTransactionPrice||0).toLocaleString()],
+          ['Lowest Reported','$'+Math.round(ms.lowestReported||0).toLocaleString()],
+          ['Highest Reported','$'+Math.round(ms.highestReported||0).toLocaleString()],
+          ['Avg Discount off MSRP','-$'+Math.round(ms.avgDiscountOffMsrp||0).toLocaleString()+' ('+( ms.avgDiscountPercent||0)+'%)'],
+          ['Best Time to Buy',ms.bestMonthToBuy||''],
+          ['Avg Days on Lot',(ms.daysOnLot||'—')+' days'],
+        ],
+        theme:'plain', styles:{fontSize:9,cellPadding:3},
+        columnStyles:{0:{textColor:C.ink3,cellWidth:88},1:{textColor:C.ink,fontStyle:'bold'}},
+        alternateRowStyles:{fillColor:C.cream},
+      });
+      y=doc.lastAutoTable.finalY+10;
+    }
+
+    // ── FAIR MARKET VALUE ──
+    const fmv=lastParsed.fairMarketValue;
+    if(fmv&&(fmv.kbb||fmv.edmunds||fmv.cargurus)){
+      chk(40); band('FAIR MARKET VALUE');
+      const rows=[];
+      if(fmv.kbb&&fmv.kbb.dealerRetail) rows.push(['KBB Dealer Retail','$'+Math.round(fmv.kbb.dealerRetail).toLocaleString(),lastMsrp?(lastMsrp>fmv.kbb.dealerRetail?'Above KBB':'Below KBB'):'']);
+      if(fmv.cargurus&&fmv.cargurus.avgListing) rows.push(['CarGurus Avg Listing','$'+Math.round(fmv.cargurus.avgListing).toLocaleString(),lastMsrp?(lastMsrp>fmv.cargurus.avgListing?'Above Avg':'Below Avg'):'']);
+      if(fmv.edmunds&&fmv.edmunds.tmv) rows.push(['Edmunds TMV','$'+Math.round(fmv.edmunds.tmv).toLocaleString(),lastMsrp?(lastMsrp>fmv.edmunds.tmv?'Above TMV':'Below TMV'):'']);
+      if(rows.length){
+        doc.autoTable({
+          startY:y, margin:{left:M,right:M},
+          head:[['Source','Value','vs Listed Price']],
+          body:rows, theme:'striped',
+          headStyles:{fillColor:C.ink,textColor:C.white,fontSize:8,cellPadding:3},
+          bodyStyles:{fontSize:9,cellPadding:3},
+          alternateRowStyles:{fillColor:C.cream},
+          columnStyles:{1:{fontStyle:'bold',textColor:C.orange}},
+        });
+        y=doc.lastAutoTable.finalY+10;
+      }
+    }
+
+    // ── REAL DEAL REPORTS ──
+    const deals=(lastParsed.deals||[]).filter(d=>d.description&&d.description.trim());
+    if(deals.length){
+      chk(30); band('REAL DEAL REPORTS — What Buyers Actually Paid');
+      deals.slice(0,5).forEach(d=>{
+        const src=d.source||'';
+        const desc=d.description||'';
+        const descLines=doc.splitTextToSize('"'+desc+'"',CW-18);
+        const visLines=Math.min(descLines.length,8);
+        const cardH=visLines*4.5+22;
+        chk(cardH+4);
+        doc.setFillColor(...C.cream); doc.setDrawColor(...C.border); doc.setLineWidth(0.2);
+        doc.rect(M,y,CW,cardH,'FD');
+        const lnk=d.url&&d.url.startsWith('http')?d.url:sourceUrl(src);
+        sty('bold',8.5,C.blue); doc.text(src+' ↗',M+5,y+7);
+        doc.link(M+4,y+2,doc.getTextWidth(src+' ↗')+2,6,{url:lnk});
+        sty('bold',12,C.orange); doc.text('$'+Math.round(d.price||0).toLocaleString(),PW-M-5,y+7,{align:'right'});
+        sty('normal',8,C.ink2); doc.text(descLines.slice(0,visLines),M+5,y+14);
+        if((d.tags||[]).length){
+          let tagX=M+4;
+          const tagY=y+cardH-4;
+          (d.tags||[]).slice(0,5).forEach(tag=>{ sty('bold',7,C.ink3); doc.text('• '+tag,tagX,tagY); tagX+=doc.getTextWidth('• '+tag)+5; });
+        }
+        y+=cardH+4;
+      });
+      y+=2;
+    }
+
+    // ── NEGOTIATION TIPS ──
+    const tips=lastParsed.negotiationTips||[];
+    if(tips.length){
+      chk(30); band('NEGOTIATION TIPS & STRATEGIES');
+      tips.forEach((tip,i)=>{
+        const tl=doc.splitTextToSize(tip,CW-18);
+        const tipH=tl.length*4.8+12;
+        chk(tipH+2);
+        doc.setFillColor(250,248,245); doc.setDrawColor(...C.border); doc.setLineWidth(0.2);
+        doc.rect(M,y,CW,tipH,'FD');
+        // Number badge
+        doc.setFillColor(...C.orange); doc.rect(M,y,10,tipH,'F');
+        sty('bold',9,C.white); doc.text(String(i+1),M+5,y+tipH/2+3,{align:'center'});
+        // Tip text
+        sty('normal',9,C.ink); doc.text(tl,M+14,y+7);
+        y+=tipH+3;
+      });
+      y+=4;
+    }
+
+    // ── INTEREST RATES (APR) ──
+    if(lastVinData && lastVinData.apr){
+      const ap=lastVinData.apr;
+      const terms=['36','48','60','72','84'];
+      const price=lastMsrp||0;
+      chk(35); band('CURRENT INTEREST RATES & ESTIMATED PAYMENTS');
+      const aprRows=terms.filter(t=>ap[t]).map(function(t){
+        const rate=ap[t];
+        const mo=parseInt(t);
+        // Simple loan payment formula (assumes 10% down)
+        const principal=price*0.9;
+        const r=rate/100/12;
+        const pmt=principal>0&&r>0?principal*r*Math.pow(1+r,mo)/(Math.pow(1+r,mo)-1):0;
+        return [t+' months', rate.toFixed(2)+'%', pmt>0?'$'+Math.round(pmt).toLocaleString()+'/mo':'—'];
+      });
+      if(aprRows.length){
+        sty('normal',8,C.ink3); doc.text('Based on 720 credit score'+(price>0?' — payments assume 10% down on $'+Math.round(price).toLocaleString():''),M+3,y); y+=5;
+        doc.autoTable({
+          startY:y, margin:{left:M,right:M},
+          head:[['Loan Term','APR Rate','Est. Monthly Payment']],
+          body:aprRows, theme:'striped',
+          headStyles:{fillColor:C.ink,textColor:C.white,fontSize:8,cellPadding:3},
+          bodyStyles:{fontSize:9,cellPadding:3},
+          alternateRowStyles:{fillColor:C.cream},
+          columnStyles:{1:{textColor:C.orange,fontStyle:'bold'},2:{textColor:C.ink,fontStyle:'bold'}},
+        });
+        y=doc.lastAutoTable.finalY+10;
+      }
+    }
+
+    // ── TOTAL COST OF OWNERSHIP ──
+    if(lastVinData && lastVinData.tco && lastVinData.tco.total){
+      const tc=lastVinData.tco.total;
+      chk(40); band('5-YEAR TOTAL COST OF OWNERSHIP');
+      const tcoRows=[
+        ['Depreciation',  tc.depreciation  ||0],
+        ['Fuel',          tc.fuel          ||0],
+        ['Maintenance',   tc.maintenance   ||0],
+        ['Repairs',       tc.repairs       ||0],
+        ['Insurance',     tc.insurance     ||0],
+        ['Finance Interest', tc.financeInterest||0],
+        ['Taxes & Fees',  tc.taxesAndFees  ||0],
+      ].filter(r=>r[1]>0);
+      const tcoTotal=tc.tcoPrice||0;
+      const tcoMax=Math.max(...tcoRows.map(r=>r[1]),1);
+      tcoRows.forEach(function(row){
+        chk(10);
+        const label=row[0], val=row[1];
+        const barW=Math.round((val/tcoMax)*(CW-80));
+        sty('normal',8,C.ink2); doc.text(label,M+3,y+4);
+        doc.setFillColor(...C.border); doc.rect(M+75,y,CW-78,5,'F');
+        doc.setFillColor(...C.orange); doc.rect(M+75,y,barW,5,'F');
+        sty('bold',8,C.ink); doc.text('$'+Math.round(val).toLocaleString(),PW-M-3,y+4,{align:'right'});
+        y+=8;
+      });
+      chk(10);
+      doc.setDrawColor(...C.orange); doc.setLineWidth(0.4); doc.line(M,y,PW-M,y);
+      y+=4;
+      sty('bold',10,C.ink); doc.text('5-Year Total Cost of Ownership',M+3,y+4);
+      sty('bold',11,C.orange); doc.text('$'+Math.round(tcoTotal).toLocaleString(),PW-M-3,y+4,{align:'right'});
+      y+=6;
+      if(tc.averageCostPerMile){
+        sty('normal',8,C.ink3); doc.text('Average cost per mile: $'+tc.averageCostPerMile.toFixed(2),M+3,y+4); y+=8;
+      }
+      y+=4;
+    }
+
+    // ── VEHICLE RECALLS ──
+    if(lastVinData && lastVinData.recalls && lastVinData.recalls.length){
+      const recs=lastVinData.recalls;
+      chk(20); band('VEHICLE RECALLS ('+recs.length+' FOUND — NHTSA)');
+      recs.forEach(function(rc,i){
+        const comp=rc.component||'';
+        const summ=rc.summary||'';
+        const rem=rc.remedy||'';
+        const summLines=doc.splitTextToSize(summ,CW-10);
+        const remLines=rem?doc.splitTextToSize('Remedy: '+rem,CW-10):[];
+        const cardH=Math.min(summLines.length,4)*4.5+remLines.length*4+22;
+        chk(cardH+4);
+        doc.setFillColor(253,236,234); doc.setDrawColor(192,57,43); doc.setLineWidth(0.3);
+        doc.rect(M,y,CW,cardH,'FD');
+        sty('bold',8.5,[192,57,43]); doc.text('⚠ '+comp,M+4,y+7);
+        const campNum=rc.nhtsaCampaignNumber||'';
+        if(campNum){ sty('normal',7.5,C.ink3); doc.text('NHTSA #'+campNum,PW-M-4,y+7,{align:'right'}); }
+        sty('normal',8,C.ink2);
+        doc.text(summLines.slice(0,4),M+4,y+13);
+        if(remLines.length){
+          sty('bold',8,[29,158,117]);
+          doc.text(remLines.slice(0,2),M+4,y+13+Math.min(summLines.length,4)*4.5);
+        }
+        y+=cardH+4;
+      });
+      // Link to full NHTSA page
+      if(vin){
+        chk(8);
+        const nhtsaUrl='https://www.nhtsa.gov/vehicle-safety/search?vin='+vin;
+        sty('bold',8,C.blue); doc.text('View full recall history on NHTSA.gov ↗',M+3,y);
+        doc.link(M+3,y-4,100,6,{url:nhtsaUrl});
+        y+=8;
+      }
+      y+=2;
+    } else if(lastVinData && lastVinData.totalRecalls===0){
+      chk(16); band('VEHICLE RECALLS');
+      sty('normal',9,C.ink2); doc.text('No open recalls found for this VIN.',M+3,y); y+=10;
+    }
+
+    // ── NATIONWIDE COMPARABLES ──
+    if(lastComparables&&(lastComparables.comparables||[]).length>0){
+      chk(40); band('NATIONWIDE COMPARABLE LISTINGS');
+      const cs=lastComparables.stats||{};
+      // Search link back to AutoNegotiating
+      const sp=new URLSearchParams({make:makeVal,model:modelVal,zip:'90210',distance:'5000'});
+      const searchUrl=origin+'/?'+sp.toString();
+      sty('bold',8.5,C.blue);
+      const slabel='Search these comparables on AutoNegotiating.com ↗';
+      doc.text(slabel,M+3,y); doc.link(M+3,y-5,doc.getTextWidth(slabel),7,{url:searchUrl});
+      y+=6;
+      if(cs.count){
+        sty('normal',8,C.ink3);
+        doc.text(cs.count+' found nationwide  |  Avg: $'+Math.round(cs.avgPrice||0).toLocaleString()+'  |  Range: $'+Math.round(cs.minPrice||0).toLocaleString()+' – $'+Math.round(cs.maxPrice||0).toLocaleString(),M+3,y);
+        y+=6;
+      }
+      doc.autoTable({
+        startY:y, margin:{left:M,right:M},
+        head:[['Year','Make / Model','Trim','Price','Mileage','Cond.','Location']],
+        body:lastComparables.comparables.slice(0,25).map(c=>[
+          c.year||'',
+          (c.make||'')+' '+(c.model||''),
+          c.trim||'—',
+          '$'+Math.round(c.price||0).toLocaleString(),
+          c.mileage>0?Math.round(c.mileage).toLocaleString()+' mi':'—',
+          c.condition||'used',
+          c.city&&c.state?c.city+', '+c.state:(c.state||'—'),
+        ]),
+        theme:'striped',
+        headStyles:{fillColor:C.orange,textColor:C.white,fontSize:7.5,fontStyle:'bold',cellPadding:2.5},
+        bodyStyles:{fontSize:7.5,cellPadding:2.5,textColor:C.ink2},
+        alternateRowStyles:{fillColor:C.cream},
+        columnStyles:{3:{textColor:C.orange,fontStyle:'bold'}},
+        didDrawCell:function(data){
+          if(data.section==='body'&&data.column.index===1){
+            const comp=lastComparables.comparables[data.row.index];
+            if(comp){ const p=new URLSearchParams({make:comp.make||'',model:comp.model||''}); doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url:origin+'/?'+p.toString()}); }
+          }
+        },
+      });
+      y=doc.lastAutoTable.finalY+10;
+    }
+
+    // ── EXTERNAL RESOURCES ──
+    chk(20); band('EXTERNAL RESOURCES & LINKS');
+    const resources=[];
+    if(vin){
+      resources.push({label:'NHTSA Safety & Recall Check — VIN: '+vin,url:'https://www.nhtsa.gov/vehicle-safety/search?vin='+vin,desc:'Free official safety ratings, open recalls, complaints, and investigation history from the U.S. government'});
+      resources.push({label:'Carfax Vehicle History Report — VIN: '+vin,url:'https://www.carfax.com/VehicleHistory/p/Report.cfx?vin='+vin+'&partner=FRD_2',desc:'Full accident history, number of owners, service records, and title issues. Ask your dealer for a free copy.'});
+    }
+    resources.push(
+      {label:'Kelley Blue Book — '+lastVehicleLabel,url:'https://www.kbb.com/'+makeVal.toLowerCase().replace(/\s+/g,'-')+'/'+modelVal.toLowerCase().replace(/\s+/g,'-')+'/'+yearVal+'/',desc:'Trade-in value, dealer retail price, and private party value for this vehicle'},
+      {label:'Edmunds True Market Value — '+lastVehicleLabel,url:'https://www.edmunds.com/'+makeVal.toLowerCase().replace(/\s+/g,'-')+'/'+modelVal.toLowerCase().replace(/\s+/g,'-')+'/'+yearVal+'/review/',desc:'What others are actually paying (TMV) plus expert reviews and incentives'},
+      {label:'CarGurus — '+lastVehicleLabel+' Listings',url:'https://www.cargurus.com/',desc:'Live market pricing, deal ratings, price history, and local/nationwide inventory'},
+      {label:'Reddit r/askcarsales — '+lastVehicleLabel,url:'https://www.reddit.com/r/askcarsales/search/?q='+encodeURIComponent(lastVehicleLabel)+'&restrict_sr=1',desc:'Real buyer and dealer experiences negotiating this specific vehicle'},
+      {label:'Reddit r/personalfinance — Car Buying Guide',url:'https://www.reddit.com/r/personalfinance/wiki/cars/',desc:'Community guide covering financing, negotiation, and the full car buying process'},
+    );
+    resources.forEach(r=>{
+      chk(18);
+      sty('bold',9,C.blue); doc.text(r.label,M+3,y);
+      doc.link(M+3,y-5,Math.min(doc.getTextWidth(r.label),CW-6),6,{url:r.url});
+      sty('normal',8,C.ink3);
+      const dl=doc.splitTextToSize(r.desc,CW-6);
+      doc.text(dl,M+3,y+5);
+      sty('normal',7,C.blue);
+      const ud=r.url.length>85?r.url.slice(0,82)+'...':r.url;
+      doc.text(ud,M+3,y+5+dl.length*4.5);
+      doc.link(M+3,y+2+dl.length*4.5,Math.min(doc.getTextWidth(ud),CW-6),4.5,{url:r.url});
+      y+=dl.length*4.5+14;
+    });
+
+    // ── FOOTER ──
+    const total=doc.getNumberOfPages();
+    for(let pg=1;pg<=total;pg++){
+      doc.setPage(pg);
+      doc.setFillColor(...C.border); doc.rect(0,PH-10,PW,10,'F');
+      sty('normal',7,C.ink3);
+      doc.text('AutoNegotiating.com  —  Deal Intelligence Report  —  '+dateStr,M,PH-5);
+      doc.text('Page '+pg+' of '+total,PW-M,PH-5,{align:'right'});
+      doc.link(M,PH-10,90,10,{url:'https://autonegotiating.com'});
+    }
+
+    const fname=[yearVal,makeVal,modelVal].filter(Boolean).join('-').replace(/[^a-zA-Z0-9-]/g,'-')+'-deal-report.pdf';
+    doc.save(fname);
+  } catch(err) {
+    alert('PDF generation failed: '+err.message);
+    console.error(err);
+  } finally {
+    btn.disabled=false;
+    btn.innerHTML=orig;
+  }
+}
+
 // Auto-fill and auto-run from URL params (when arriving via Intel button)
 (function() {
   const p = new URLSearchParams(window.location.search);
@@ -1266,6 +1801,23 @@ document.getElementById('car-model').addEventListener('change', populateTrims);
   const price     = p.get('price')     || '';
   const mileage   = p.get('mileage')   || '';
   const condition = p.get('condition') || '';
+
+  // Carfax/history data passed from listing
+  const hAccidents  = p.get('accidents');
+  const hOneOwner   = p.get('oneOwner');
+  const hOwnerCount = p.get('ownerCount');
+  const hPersonal   = p.get('personalUse');
+  const hUsageType  = p.get('usageType');
+  if (hAccidents !== null || hOneOwner !== null) {
+    window._listingHistory = {
+      accidentCount: parseInt(hAccidents) || 0,
+      accidents:     parseInt(hAccidents) > 0,
+      oneOwner:      hOneOwner === '1',
+      ownerCount:    parseInt(hOwnerCount) || 0,
+      personalUse:   hPersonal === '1',
+      usageType:     hUsageType || '',
+    };
+  }
 
   if (!make && !vin) return;
 

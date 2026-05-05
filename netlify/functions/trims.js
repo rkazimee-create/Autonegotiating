@@ -16,6 +16,19 @@ function httpsGet(url, headers) {
   });
 }
 
+// Tokens that are drive-train/AWD suffixes, not standalone trim names
+const SUFFIX_ONLY = new Set(['xdrive', 'awd', 'fwd', 'rwd', '4wd', '4x4', '4motion', 'quattro']);
+
+function isValidTrim(trim) {
+  if (!trim) return false;
+  const t = trim.toLowerCase().trim();
+  // Filter out pure AWD/drivetrain suffixes
+  if (SUFFIX_ONLY.has(t)) return false;
+  // Must be at least 2 chars
+  if (t.length < 2) return false;
+  return true;
+}
+
 exports.handler = async (event) => {
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -39,48 +52,56 @@ exports.handler = async (event) => {
     return { statusCode: 400, headers, body: JSON.stringify({ error: 'make and model are required' }) };
   }
 
-  const params = new URLSearchParams();
-  params.set('make',  make);
-  params.set('model', model);
-  params.set('zip',      '44114');
-  params.set('distance', '5000');
-  params.set('limit',    '100');
+  const authHeaders = {
+    'Authorization': 'Bearer ' + apiKey,
+    'Content-Type': 'application/json',
+  };
 
-  const url = 'https://auto.dev/api/listings?' + params.toString();
-  console.log('Trims URL:', url);
+  const trimSet = new Set();
+  let totalFetched = 0;
 
-  try {
-    const res = await httpsGet(url, {
-      'Authorization': 'Bearer ' + apiKey,
-      'Content-Type': 'application/json',
-    });
+  // Fetch up to 3 pages to get broader trim coverage
+  for (let page = 1; page <= 3; page++) {
+    const params = new URLSearchParams();
+    params.set('make',     make);
+    params.set('model',    model);
+    params.set('zip',      '44114');
+    params.set('distance', '5000');
+    params.set('limit',    '100');
+    params.set('page',     String(page));
 
-    const data = JSON.parse(res.body);
-    if (!res.ok) throw new Error(data.message || 'Auto.dev error ' + res.status);
+    const url = 'https://auto.dev/api/listings?' + params.toString();
+    console.log('Trims URL page ' + page + ':', url);
 
-    const records = data.records || [];
-    console.log('Trims records:', records.length);
+    try {
+      const res = await httpsGet(url, authHeaders);
+      const data = JSON.parse(res.body);
+      if (!res.ok) break;
 
-    const trimSet = new Set();
-    records.forEach(function(r) {
-      const trim = r.trim ? r.trim.trim() : '';
-      if (trim) trimSet.add(trim);
-    });
+      const records = data.records || [];
+      if (records.length === 0) break;
+      totalFetched += records.length;
 
-    const trims = Array.from(trimSet).sort();
-    console.log('Unique trims found:', trims.length);
+      records.forEach(function(r) {
+        const trim = r.trim ? r.trim.trim() : '';
+        if (isValidTrim(trim)) trimSet.add(trim);
+      });
 
-    return {
-      statusCode: 200,
-      headers,
-      body: JSON.stringify({ trims, total: records.length }),
-    };
-  } catch (err) {
-    console.error('Trims error:', err.message);
-    return {
-      statusCode: 500,
-      headers,
-      body: JSON.stringify({ error: err.message }),
-    };
+      // Stop early if we've seen all listings
+      const total = data.totalCount || 0;
+      if (totalFetched >= total) break;
+    } catch (err) {
+      console.error('Trims page ' + page + ' error:', err.message);
+      break;
+    }
   }
+
+  const trims = Array.from(trimSet).sort();
+  console.log('Unique trims found:', trims.length, 'from', totalFetched, 'records');
+
+  return {
+    statusCode: 200,
+    headers,
+    body: JSON.stringify({ trims, total: totalFetched }),
+  };
 };
