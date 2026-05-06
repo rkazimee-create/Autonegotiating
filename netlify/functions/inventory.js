@@ -39,7 +39,6 @@ exports.handler = async (event) => {
   const make  = q.make  || q['vehicle.make'];
   const model = q.model || q['vehicle.model'];
 
-  if (q.vin)       params.set('vin', q.vin);
   if (make)        params.set('vehicle.make',  make);
   if (model)       params.set('vehicle.model', model);
   if (q.bodyStyle) params.set('vehicle.bodyStyle', q.bodyStyle);

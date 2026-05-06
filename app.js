@@ -593,9 +593,7 @@ async function runSearch(page = 1) {
   }
 
   const trim     = document.getElementById('search-trim') ? document.getElementById('search-trim').value.trim() : '';
-  const vin      = document.getElementById('search-vin') ? document.getElementById('search-vin').value.trim().toUpperCase() : '';
   const params = { zip, distance: radius };
-  if (vin)       params['vin']       = vin;
   if (make)      params['make']      = make;
   if (model)     params['model']     = model;
   if (condition) params['condition'] = condition;
@@ -1222,6 +1220,28 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   if (vinParam) {
     const vinEl = document.getElementById('search-vin');
     if (vinEl) vinEl.value = vinParam.toUpperCase();
-    runSearch();
+    // Decode VIN to get make/model/year, then search by those
+    fetch('/api/vin-decode?vin=' + encodeURIComponent(vinParam))
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.make) {
+          const makeEl = document.getElementById('search-make');
+          const modelEl = document.getElementById('search-model');
+          const yearMinEl = document.getElementById('search-min-year');
+          const yearMaxEl = document.getElementById('search-max-year');
+          if (makeEl) makeEl.value = data.make;
+          if (data.year) {
+            if (yearMinEl) yearMinEl.value = data.year;
+            if (yearMaxEl) yearMaxEl.value = data.year;
+          }
+          // Populate model dropdown then set value
+          populateModels();
+          if (modelEl && data.model) modelEl.value = data.model;
+          runSearch();
+        } else {
+          runSearch();
+        }
+      })
+      .catch(() => runSearch());
   }
 })();
