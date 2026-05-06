@@ -182,6 +182,27 @@ footer a{color:var(--orange);text-decoration:none}
   .page-wrap{padding:1.5rem 1rem}
   nav{padding:0 1rem}
 }
+
+/* PAYWALL MODAL */
+.modal-backdrop{position:fixed;inset:0;background:rgba(26,26,24,0.55);backdrop-filter:blur(3px);z-index:1000;display:flex;align-items:center;justify-content:center;padding:1rem;opacity:0;transition:opacity 0.2s}
+.modal-backdrop.visible{opacity:1}
+.modal{background:var(--white);border-radius:var(--radius);max-width:440px;width:100%;padding:2.25rem 2rem;position:relative;transform:translateY(16px);transition:transform 0.2s;box-shadow:0 8px 40px rgba(0,0,0,0.18)}
+.modal-backdrop.visible .modal{transform:translateY(0)}
+.modal-close{position:absolute;top:1rem;right:1rem;background:none;border:none;cursor:pointer;color:var(--ink3);padding:4px;border-radius:var(--radius-xs);transition:color 0.15s}
+.modal-close:hover{color:var(--ink)}
+.modal-eyebrow{font-size:10px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;color:var(--orange);margin-bottom:0.5rem}
+.modal h2{font-family:'Playfair Display',serif;font-size:22px;font-weight:700;color:var(--ink);letter-spacing:-0.3px;margin-bottom:0.5rem;line-height:1.2}
+.modal-sub{font-size:13px;color:var(--ink2);line-height:1.7;margin-bottom:1.25rem}
+.modal-features{list-style:none;margin-bottom:1.5rem;display:flex;flex-direction:column;gap:8px}
+.modal-features li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--ink2)}
+.modal-features li svg{flex-shrink:0;color:var(--success)}
+.modal-price-row{display:flex;align-items:baseline;gap:8px;margin-bottom:1.5rem;padding:1rem;background:var(--orange-light);border:1px solid var(--orange-border);border-radius:var(--radius-sm)}
+.modal-price{font-family:'Playfair Display',serif;font-size:32px;font-weight:700;color:var(--orange)}
+.modal-price-desc{font-size:13px;color:var(--ink2);line-height:1.4}
+.modal-price-desc strong{display:block;color:var(--ink);font-size:14px;font-weight:600}
+.modal-pay-btn{width:100%;background:var(--orange);color:white;font-family:'Inter',sans-serif;font-size:14px;font-weight:600;border:none;padding:14px;border-radius:var(--radius-sm);cursor:pointer;transition:background 0.15s;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:0.75rem}
+.modal-pay-btn:hover{background:var(--orange-dark)}
+.modal-note{text-align:center;font-size:11px;color:var(--ink3)}
 </style>
 </head>
 <body>
@@ -265,7 +286,7 @@ footer a{color:var(--orange);text-decoration:none}
       </div>
       <div id="vin-status" style="font-size:12px;color:var(--ink3);margin-top:6px;display:none"></div>
     </div>
-    <button class="analyze-btn" id="analyze-btn" onclick="runAnalysis()">
+    <button class="analyze-btn" id="analyze-btn" onclick="openPaywallModal()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       Analyze Deal Intelligence
     </button>
@@ -357,6 +378,38 @@ footer a{color:var(--orange);text-decoration:none}
 
 <footer><p> 2025 <a href="/">AutoNegotiating.com</a>  Buyer's Agent Platform  <a href="mailto:offers@autonegotiating.com">offers@autonegotiating.com</a></p></footer>
 
+<!-- PAYWALL MODAL -->
+<div class="modal-backdrop" id="paywall-modal" onclick="closePaywallModal(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="closePaywallModal()">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+    </button>
+    <div class="modal-eyebrow">Deal Intelligence Report</div>
+    <h2>Get Your Personalized Negotiation Report</h2>
+    <p class="modal-sub">Our AI searches KBB, CarGurus, and Edmunds in real time to build your custom report — so you walk into the dealership knowing exactly what to pay.</p>
+    <ul class="modal-features">
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>AI-recommended offer strategy (Aggressive, Recommended, Safe)</li>
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Fair market value from KBB, CarGurus &amp; Edmunds</li>
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Real deal reports &amp; what others actually paid</li>
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Nationwide comparable listings near you</li>
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Negotiation tips specific to this vehicle</li>
+      <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>Downloadable PDF report to take to the dealer</li>
+    </ul>
+    <div class="modal-price-row">
+      <div class="modal-price">$9.99</div>
+      <div class="modal-price-desc">
+        <strong>One-time purchase</strong>
+        Instant report &middot; No subscription
+      </div>
+    </div>
+    <button class="modal-pay-btn" onclick="handlePayment()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+      Pay $9.99 &amp; Generate My Report
+    </button>
+    <div class="modal-note">Secure payment via Stripe &middot; Instant delivery</div>
+  </div>
+</div>
+
 <script>
 const STEPS = [
   'Searching Reddit r/askcarsales, r/personalfinance...',
@@ -405,6 +458,29 @@ async function animateSteps(totalMs) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function fmt(n) { return '$' + Math.round(n).toLocaleString(); }
 function escHtml(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function openPaywallModal() {
+  const make = document.getElementById('car-make').value.trim();
+  const model = document.getElementById('car-model').value.trim();
+  if (!make || !model) { showError('Please enter at least a make and model.'); return; }
+  const modal = document.getElementById('paywall-modal');
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => modal.classList.add('visible'));
+}
+
+function closePaywallModal(e) {
+  if (e && e.target !== document.getElementById('paywall-modal')) return;
+  const modal = document.getElementById('paywall-modal');
+  modal.classList.remove('visible');
+  setTimeout(() => { modal.style.display = 'none'; }, 200);
+}
+
+function handlePayment() {
+  // TODO: replace with your Stripe payment link
+  // window.location.href = 'https://buy.stripe.com/your-link-here';
+  closePaywallModal();
+  runAnalysis();
+}
 
 async function runAnalysis() {
   const year = document.getElementById('car-year').value.trim();
@@ -1733,7 +1809,12 @@ async function generatePDF() {
         didDrawCell:function(data){
           if(data.section==='body'&&data.column.index===1){
             const comp=lastComparables.comparables[data.row.index];
-            if(comp){ const p=new URLSearchParams({make:comp.make||'',model:comp.model||''}); doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url:origin+'/?'+p.toString()}); }
+            if(comp){
+              const url=comp.vin
+                ?'https://www.cargurus.com/Cars/searchResults.action?vin='+encodeURIComponent(comp.vin)
+                :'https://www.cargurus.com/Cars/new/nl/'+encodeURIComponent((comp.make||'')+'_'+encodeURIComponent(comp.model||''));
+              doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url});
+            }
           }
         },
       });
@@ -1882,7 +1963,7 @@ async function generatePDF() {
         trimEl.disabled = false;
       }
     }
-    runAnalysis();
+    openPaywallModal();
   });
 })();
 </script>
