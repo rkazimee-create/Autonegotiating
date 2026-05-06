@@ -593,7 +593,9 @@ async function runSearch(page = 1) {
   }
 
   const trim     = document.getElementById('search-trim') ? document.getElementById('search-trim').value.trim() : '';
+  const vin      = document.getElementById('search-vin') ? document.getElementById('search-vin').value.trim().toUpperCase() : '';
   const params = { zip, distance: radius };
+  if (vin)       params['vin']       = vin;
   if (make)      params['make']      = make;
   if (model)     params['model']     = model;
   if (condition) params['condition'] = condition;
@@ -1209,9 +1211,17 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   const si = document.getElementById('stat-inc'); if(si) si.textContent = '';
   const ss = document.getElementById('stat-savings'); if(ss) ss.textContent = '';
   document.getElementById('stat-dealers').textContent = '';
-  // Wire make  model dropdown
+  // Wire make → model dropdown
   const makeEl = document.getElementById('search-make');
   if (makeEl) makeEl.addEventListener('change', populateModels);
   const modelEl = document.getElementById('search-model');
   if (modelEl) modelEl.addEventListener('change', populateTrims);
+
+  // Auto-search if ?vin= param is present (e.g. arriving from PDF report)
+  const vinParam = new URLSearchParams(window.location.search).get('vin');
+  if (vinParam) {
+    const vinEl = document.getElementById('search-vin');
+    if (vinEl) vinEl.value = vinParam.toUpperCase();
+    runSearch();
+  }
 })();

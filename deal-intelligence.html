@@ -1809,11 +1809,8 @@ async function generatePDF() {
         didDrawCell:function(data){
           if(data.section==='body'&&data.column.index===1){
             const comp=lastComparables.comparables[data.row.index];
-            if(comp){
-              const url=comp.vin
-                ?'https://www.cargurus.com/Cars/searchResults.action?vin='+encodeURIComponent(comp.vin)
-                :'https://www.cargurus.com/Cars/new/nl/'+encodeURIComponent((comp.make||'')+'_'+encodeURIComponent(comp.model||''));
-              doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url});
+            if(comp&&comp.vin){
+              doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url:origin+'/?vin='+encodeURIComponent(comp.vin)});
             }
           }
         },
