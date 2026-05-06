@@ -571,15 +571,15 @@ async function fetchInventory(params, page, limit) {
 }
 
 //  SEARCH 
-async function runSearch(page = 1) {
+async function runSearch(page = 1, forceParams = {}) {
   currentPage = page;
 
   // Collect all search params
   const zip       = document.getElementById('search-zip').value.trim();
   const radius    = document.getElementById('search-radius').value || '50';
   const radiusNum = parseInt(radius) || 50;
-  const make      = document.getElementById('search-make').value;
-  const model     = document.getElementById('search-model').value.trim();
+  const make      = forceParams.make  !== undefined ? forceParams.make  : document.getElementById('search-make').value;
+  const model     = forceParams.model !== undefined ? forceParams.model : document.getElementById('search-model').value.trim();
   const condition = document.getElementById('search-condition').value;
   const minYear   = document.getElementById('search-min-year').value;
   const maxYear   = document.getElementById('search-max-year').value;
@@ -1209,9 +1209,36 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   const si = document.getElementById('stat-inc'); if(si) si.textContent = '';
   const ss = document.getElementById('stat-savings'); if(ss) ss.textContent = '';
   document.getElementById('stat-dealers').textContent = '';
-  // Wire make  model dropdown
+  // Wire make → model dropdown
   const makeEl = document.getElementById('search-make');
   if (makeEl) makeEl.addEventListener('change', populateModels);
   const modelEl = document.getElementById('search-model');
   if (modelEl) modelEl.addEventListener('change', populateTrims);
+
+  // Auto-search if ?make= param is present (e.g. arriving from PDF comparable link)
+  const urlParams = new URLSearchParams(window.location.search);
+  const makeParam  = urlParams.get('make');
+  const modelParam = urlParams.get('model');
+  const yearParam  = urlParams.get('year');
+
+  if (makeParam) {
+    const radiusEl = document.getElementById('search-radius');
+    const makeEl   = document.getElementById('search-make');
+    const yearMinEl = document.getElementById('search-min-year');
+    const yearMaxEl = document.getElementById('search-max-year');
+
+    if (radiusEl) radiusEl.value = '5000'; // nationwide
+
+    // Set dropdowns for display
+    if (makeEl) {
+      const opt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === makeParam.toLowerCase());
+      if (opt) { makeEl.value = opt.value; populateModels(); }
+    }
+    if (yearParam) {
+      if (yearMinEl) yearMinEl.value = yearParam;
+      if (yearMaxEl) yearMaxEl.value = yearParam;
+    }
+
+    runSearch(1, { make: makeParam, model: modelParam || '' });
+  }
 })();
