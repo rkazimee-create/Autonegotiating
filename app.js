@@ -1218,27 +1218,30 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   // Auto-search if ?vin= param is present (e.g. arriving from PDF report)
   const vinParam = new URLSearchParams(window.location.search).get('vin');
   if (vinParam) {
-    const vinEl = document.getElementById('search-vin');
-    if (vinEl) vinEl.value = vinParam.toUpperCase();
-    // Widen to nationwide — the comparable could be anywhere in the US
+    const vinEl    = document.getElementById('search-vin');
+    const makeEl   = document.getElementById('search-make');
+    const modelEl  = document.getElementById('search-model');
     const radiusEl = document.getElementById('search-radius');
-    if (radiusEl) radiusEl.value = '5000';
-    // Decode VIN to get make/model, then search
+
+    if (vinEl)    vinEl.value    = vinParam.toUpperCase();
+    if (radiusEl) radiusEl.value = '5000'; // nationwide — comparable could be anywhere
+
+    // Clear any stale make/model from a previous search
+    if (makeEl)  makeEl.value = '';
+    if (modelEl) { modelEl.innerHTML = '<option value="">Any Model</option>'; modelEl.disabled = true; }
+
     fetch('/api/vin-decode?vin=' + encodeURIComponent(vinParam))
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data && data.make) {
-          const makeEl = document.getElementById('search-make');
-          const modelEl = document.getElementById('search-model');
-          // Match make case-insensitively against dropdown options
-          if (makeEl) {
-            const opt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === data.make.toLowerCase());
-            if (opt) makeEl.value = opt.value;
-          }
-          populateModels();
-          if (modelEl && data.model) {
-            const opt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
-            if (opt) modelEl.value = opt.value;
+        if (data && data.make && makeEl) {
+          const makeOpt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === data.make.toLowerCase());
+          if (makeOpt) {
+            makeEl.value = makeOpt.value;
+            populateModels();
+            if (data.model && modelEl) {
+              const modelOpt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
+              if (modelOpt) modelEl.value = modelOpt.value;
+            }
           }
         }
         runSearch();
