@@ -1220,27 +1220,28 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   if (vinParam) {
     const vinEl = document.getElementById('search-vin');
     if (vinEl) vinEl.value = vinParam.toUpperCase();
-    // Decode VIN to get make/model/year, then search by those
+    // Widen to nationwide — the comparable could be anywhere in the US
+    const radiusEl = document.getElementById('search-radius');
+    if (radiusEl) radiusEl.value = '5000';
+    // Decode VIN to get make/model, then search
     fetch('/api/vin-decode?vin=' + encodeURIComponent(vinParam))
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data && data.make) {
           const makeEl = document.getElementById('search-make');
           const modelEl = document.getElementById('search-model');
-          const yearMinEl = document.getElementById('search-min-year');
-          const yearMaxEl = document.getElementById('search-max-year');
-          if (makeEl) makeEl.value = data.make;
-          if (data.year) {
-            if (yearMinEl) yearMinEl.value = data.year;
-            if (yearMaxEl) yearMaxEl.value = data.year;
+          // Match make case-insensitively against dropdown options
+          if (makeEl) {
+            const opt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === data.make.toLowerCase());
+            if (opt) makeEl.value = opt.value;
           }
-          // Populate model dropdown then set value
           populateModels();
-          if (modelEl && data.model) modelEl.value = data.model;
-          runSearch();
-        } else {
-          runSearch();
+          if (modelEl && data.model) {
+            const opt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
+            if (opt) modelEl.value = opt.value;
+          }
         }
+        runSearch();
       })
       .catch(() => runSearch());
   }
