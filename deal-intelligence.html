@@ -1809,8 +1809,12 @@ async function generatePDF() {
         didDrawCell:function(data){
           if(data.section==='body'&&data.column.index===1){
             const comp=lastComparables.comparables[data.row.index];
-            if(comp&&comp.vin){
-              doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url:origin+'/?vin='+encodeURIComponent(comp.vin)});
+            if(comp){
+              const p=new URLSearchParams();
+              if(comp.make)  p.set('make',  comp.make);
+              if(comp.model) p.set('model', comp.model);
+              if(comp.year)  p.set('year',  String(comp.year));
+              doc.link(data.cell.x,data.cell.y,data.cell.width,data.cell.height,{url:origin+'/?'+p.toString()});
             }
           }
         },

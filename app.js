@@ -1215,34 +1215,30 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
   const modelEl = document.getElementById('search-model');
   if (modelEl) modelEl.addEventListener('change', populateTrims);
 
-  // Auto-search if ?vin= param is present (e.g. arriving from PDF report)
-  const vinParam = new URLSearchParams(window.location.search).get('vin');
-  if (vinParam) {
-    const vinEl    = document.getElementById('search-vin');
-    const makeEl   = document.getElementById('search-make');
-    const modelEl  = document.getElementById('search-model');
+  // Auto-search if ?make= param is present (e.g. arriving from PDF comparable link)
+  const urlParams = new URLSearchParams(window.location.search);
+  const makeParam  = urlParams.get('make');
+  const modelParam = urlParams.get('model');
+  const yearParam  = urlParams.get('year');
+
+  if (makeParam) {
     const radiusEl = document.getElementById('search-radius');
+    const makeEl   = document.getElementById('search-make');
+    const yearMinEl = document.getElementById('search-min-year');
+    const yearMaxEl = document.getElementById('search-max-year');
 
-    if (vinEl)    vinEl.value    = vinParam.toUpperCase();
-    if (radiusEl) radiusEl.value = '5000'; // nationwide — comparable could be anywhere
+    if (radiusEl) radiusEl.value = '5000'; // nationwide
 
-    // Clear any stale make/model from a previous search
-    if (makeEl)  makeEl.value = '';
-    if (modelEl) { modelEl.innerHTML = '<option value="">Any Model</option>'; modelEl.disabled = true; }
+    // Set dropdowns for display
+    if (makeEl) {
+      const opt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === makeParam.toLowerCase());
+      if (opt) { makeEl.value = opt.value; populateModels(); }
+    }
+    if (yearParam) {
+      if (yearMinEl) yearMinEl.value = yearParam;
+      if (yearMaxEl) yearMaxEl.value = yearParam;
+    }
 
-    fetch('/api/vin-decode?vin=' + encodeURIComponent(vinParam))
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        const forceParams = {};
-        if (data && data.make)  forceParams.make  = data.make;
-        if (data && data.model) forceParams.model = data.model;
-        // Also update the dropdowns for display purposes
-        if (makeEl && data && data.make) {
-          const makeOpt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === data.make.toLowerCase());
-          if (makeOpt) { makeEl.value = makeOpt.value; populateModels(); }
-        }
-        runSearch(1, forceParams);
-      })
-      .catch(() => runSearch());
+    runSearch(1, { make: makeParam, model: modelParam || '' });
   }
 })();
