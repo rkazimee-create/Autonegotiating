@@ -571,15 +571,15 @@ async function fetchInventory(params, page, limit) {
 }
 
 //  SEARCH 
-async function runSearch(page = 1) {
+async function runSearch(page = 1, forceParams = {}) {
   currentPage = page;
 
   // Collect all search params
   const zip       = document.getElementById('search-zip').value.trim();
   const radius    = document.getElementById('search-radius').value || '50';
   const radiusNum = parseInt(radius) || 50;
-  const make      = document.getElementById('search-make').value;
-  const model     = document.getElementById('search-model').value.trim();
+  const make      = forceParams.make  !== undefined ? forceParams.make  : document.getElementById('search-make').value;
+  const model     = forceParams.model !== undefined ? forceParams.model : document.getElementById('search-model').value.trim();
   const condition = document.getElementById('search-condition').value;
   const minYear   = document.getElementById('search-min-year').value;
   const maxYear   = document.getElementById('search-max-year').value;
@@ -1233,28 +1233,15 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
     fetch('/api/vin-decode?vin=' + encodeURIComponent(vinParam))
       .then(r => r.ok ? r.json() : null)
       .then(data => {
-        if (data && data.make && makeEl) {
+        const forceParams = {};
+        if (data && data.make)  forceParams.make  = data.make;
+        if (data && data.model) forceParams.model = data.model;
+        // Also update the dropdowns for display purposes
+        if (makeEl && data && data.make) {
           const makeOpt = Array.from(makeEl.options).find(o => o.value.toLowerCase() === data.make.toLowerCase());
-          if (makeOpt) {
-            makeEl.value = makeOpt.value;
-            populateModels();
-            if (data.model && modelEl) {
-              modelEl.disabled = false;
-              // Try to match existing option first
-              let modelOpt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
-              if (!modelOpt) {
-                // Add it as a custom option so the API gets the right model filter
-                const opt = document.createElement('option');
-                opt.value = data.model;
-                opt.textContent = data.model;
-                modelEl.appendChild(opt);
-                modelOpt = opt;
-              }
-              modelEl.value = modelOpt.value;
-            }
-          }
+          if (makeOpt) { makeEl.value = makeOpt.value; populateModels(); }
         }
-        runSearch();
+        runSearch(1, forceParams);
       })
       .catch(() => runSearch());
   }
