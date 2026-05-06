@@ -1239,8 +1239,18 @@ document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeEleme
             makeEl.value = makeOpt.value;
             populateModels();
             if (data.model && modelEl) {
-              const modelOpt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
-              if (modelOpt) modelEl.value = modelOpt.value;
+              modelEl.disabled = false;
+              // Try to match existing option first
+              let modelOpt = Array.from(modelEl.options).find(o => o.value.toLowerCase() === data.model.toLowerCase());
+              if (!modelOpt) {
+                // Add it as a custom option so the API gets the right model filter
+                const opt = document.createElement('option');
+                opt.value = data.model;
+                opt.textContent = data.model;
+                modelEl.appendChild(opt);
+                modelOpt = opt;
+              }
+              modelEl.value = modelOpt.value;
             }
           }
         }
