@@ -67,11 +67,12 @@ function normalizeListing(l, idx) {
   const type  = guessType(make, body);
   const dealer     = l.dealerName || l.trackingParams?.dealerName || 'Local Dealer';
   const dealerCity = [l.city, l.state].filter(Boolean).join(', ');
+  const condLabel = l.condition === 'new' ? 'New' : l.condition === 'certified' ? 'CPO' : l.condition === 'used' ? 'Used' : '';
   const specs = [
-    l.engine || null,
-    l.transmission || null,
-    l.drivetrain || null,
-    l.mileageUnformatted ? Math.round(l.mileageUnformatted).toLocaleString()+' mi' : null,
+    trim || null,
+    body ? body.charAt(0).toUpperCase()+body.slice(1) : null,
+    condLabel || null,
+    l.mileageUnformatted > 0 ? Math.round(l.mileageUnformatted).toLocaleString()+' mi' : (l.condition === 'new' ? 'New' : null),
   ].filter(Boolean);
 
   return {
@@ -738,8 +739,12 @@ function renderGrid() {
   const dealers = new Set(filteredCars.map(c=>c.dealer)).size;
 
   document.getElementById('stat-count').textContent = totalResultCount > filteredCars.length ? totalResultCount.toLocaleString() : filteredCars.length;
-  const statInc = document.getElementById('stat-inc'); if(statInc) statInc.textContent = filteredCars.filter(c=>c.condition==='new').length;
-  const statSav = document.getElementById('stat-savings'); if(statSav) statSav.textContent = filteredCars.filter(c=>c.condition!=='new').length;
+  const newCount  = filteredCars.filter(c=>c.condition==='new').length;
+  const usedCount = filteredCars.filter(c=>c.condition!=='new').length;
+  const statNew  = document.getElementById('stat-new');  if(statNew)  statNew.textContent  = newCount;
+  const statUsed = document.getElementById('stat-used'); if(statUsed) statUsed.textContent = usedCount;
+  const statInc  = document.getElementById('stat-inc');  if(statInc)  statInc.textContent  = newCount;
+  const statSav  = document.getElementById('stat-savings'); if(statSav) statSav.textContent = usedCount;
   document.getElementById('stat-dealers').textContent = dealers;
   document.getElementById('grid-label').style.display = 'flex';
   grid.style.display = 'grid';
