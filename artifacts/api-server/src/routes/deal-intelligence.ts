@@ -4,9 +4,10 @@ import Anthropic from "@anthropic-ai/sdk";
 const router: IRouter = Router();
 
 function getClient(): Anthropic {
-  const key = process.env.CLAUDE_API_KEY;
-  if (!key) throw new Error("CLAUDE_API_KEY is not set");
-  return new Anthropic({ apiKey: key });
+  const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
+  const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) throw new Error("No Anthropic API key configured");
+  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
 }
 
 router.post("/deal-intelligence", async (req, res): Promise<void> => {
@@ -26,7 +27,9 @@ router.post("/deal-intelligence", async (req, res): Promise<void> => {
     marketMin,
     marketMax,
     pricePosition,
-  } = req.body as Record<string, string | number>;
+    purchaseType,
+    vin,
+  } = req.body as Record<string, string | number | boolean>;
 
   if (!make || !model) {
     res.status(400).json({ error: "make and model are required" });
@@ -45,17 +48,22 @@ router.post("/deal-intelligence", async (req, res): Promise<void> => {
   const marketStr =
     marketAvg
       ? `Market avg: $${Number(marketAvg).toLocaleString()}, range $${Number(marketMin).toLocaleString()}–$${Number(marketMax).toLocaleString()}, price position: ${pricePosition ?? "unknown"}th percentile`
-      : "No market data available";
+      : "No live market data — use your knowledge of this vehicle's current market pricing.";
 
   const historyStr = [
-    oneOwner === "1" || oneOwner === true ? "1 owner" : ownerCount ? `${ownerCount} owners` : "",
-    accidents ? `${accidents} accident(s) reported` : "No accidents reported",
+    oneOwner === "1" || oneOwner === true || oneOwner === "true" ? "1 owner" : ownerCount ? `${ownerCount} owners` : "",
+    accidents && Number(accidents) > 0 ? `${accidents} accident(s) reported` : "No accidents reported",
     usageType ? `Usage: ${usageType}` : "",
   ]
     .filter(Boolean)
     .join(", ");
 
-  const prompt = `You are an expert car buying advisor. Analyze this deal and provide a concise, actionable assessment.
+  const purchaseLabel =
+    purchaseType === "lease" ? "Lease" : purchaseType === "finance" ? "Financed" : "Cash";
+
+  const priceNum = Number(price) || 0;
+
+  const prompt = `You are an expert car buying advisor with deep knowledge of current dealer pricing, incentives, and negotiation tactics. Analyze this deal and provide a comprehensive, actionable assessment.
 
 Vehicle: ${vehicleDesc}
 Condition: ${conditionStr}
@@ -63,24 +71,83 @@ Listed Price: ${priceStr}
 Mileage: ${mileageStr}
 Vehicle History: ${historyStr || "Unknown"}
 Market Data: ${marketStr}
+Purchase Type: ${purchaseLabel}
+VIN: ${vin || "not provided"}
 
-Provide your analysis in this exact JSON structure (no markdown, just valid JSON):
+Based on your knowledge of this vehicle's current market (KBB, CarGurus, Edmunds TMV, community forums like Reddit r/askcarsales), provide your analysis in this EXACT JSON structure. No markdown, no code fences — just valid JSON:
+
 {
-  "dealScore": <number 1-10>,
-  "verdict": "<one of: Great Deal | Good Deal | Fair Deal | Overpriced>",
-  "summary": "<2-3 sentence summary of the deal quality>",
-  "targetOffer": <suggested offer amount as integer, or null if new car>,
-  "negotiationTips": ["<tip 1>", "<tip 2>", "<tip 3>"],
-  "redFlags": ["<flag 1>"] or [],
-  "greenFlags": ["<flag 1>"] or [],
-  "marketContext": "<1-2 sentences on current market conditions for this vehicle>"
-}`;
+  "offerStrategy": {
+    "aggressive": {
+      "price": <integer — lowest realistic offer, typically 8-12% below list>,
+      "label": "Aggressive",
+      "desc": "<1-2 sentences on strategy and expected dealer reaction>"
+    },
+    "recommended": {
+      "price": <integer — best balance of savings vs. acceptance likelihood, typically 4-6% below list>,
+      "label": "Recommended",
+      "desc": "<1-2 sentences on why this is the sweet spot>"
+    },
+    "safe": {
+      "price": <integer — very likely accepted, typically 1-3% below list>,
+      "label": "Safe",
+      "desc": "<1-2 sentences on this conservative approach>"
+    }
+  },
+  "summary": "<2-3 sentences summarizing deal quality, whether the price is fair, and top action item>",
+  "deals": [
+    {
+      "source": "<source name e.g. Reddit r/askcarsales, Edmunds Forums, CarGurus, TrueCar>",
+      "price": <integer — realistic transaction price from that source>,
+      "description": "<2-3 sentences describing what buyers at this source reported paying or experiencing for this vehicle. Be specific and realistic.>",
+      "tags": ["<tag1>", "<tag2>"]
+    }
+  ],
+  "marketStats": {
+    "avgTransactionPrice": <integer>,
+    "lowestReported": <integer>,
+    "highestReported": <integer>,
+    "avgDiscountOffMsrp": <integer — dollar amount off MSRP on average>,
+    "avgDiscountPercent": <number — percent off MSRP>,
+    "bestMonthToBuy": "<e.g. December, March (end of quarter)>",
+    "daysOnLot": "<average days on lot as string>"
+  },
+  "fairMarketValue": {
+    "kbb": {
+      "dealerRetail": <integer — KBB dealer retail estimate>,
+      "privateParty": <integer — KBB private party estimate if used>
+    },
+    "cargurus": {
+      "avgListing": <integer — CarGurus average listing price>
+    },
+    "edmunds": {
+      "tmv": <integer — Edmunds True Market Value>
+    }
+  },
+  "negotiationTips": [
+    "<specific tip 1 for this vehicle/situation>",
+    "<specific tip 2>",
+    "<specific tip 3>",
+    "<specific tip 4>",
+    "<specific tip 5>"
+  ],
+  "sources": ["Reddit r/askcarsales", "KBB", "CarGurus", "Edmunds", "TrueCar"],
+  "dealScore": <integer 1-10>,
+  "verdict": "<one of: Great Deal | Good Deal | Fair Deal | Overpriced>"
+}
+
+Important: 
+- All prices should be realistic for the current market (${new Date().getFullYear()})
+- The listed price is ${priceStr} — base your offer strategy around this actual number
+- Include 3-5 deal reports (deals array) from different community sources
+- Be specific to this vehicle model, not generic advice
+- If this is a new car, omit privateParty from kbb`;
 
   try {
     const client = getClient();
     const message = await client.messages.create({
-      model: "claude-3-5-haiku-20241022",
-      max_tokens: 1024,
+      model: "claude-haiku-4-5",
+      max_tokens: 2048,
       messages: [{ role: "user", content: prompt }],
     });
 
@@ -94,8 +161,24 @@ Provide your analysis in this exact JSON structure (no markdown, just valid JSON
       return;
     }
 
-    const analysis = JSON.parse(jsonMatch[0]);
-    res.json(analysis);
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(jsonMatch[0]);
+    } catch (parseErr) {
+      req.log.error({ text, parseErr }, "Claude JSON parse failed");
+      res.status(502).json({ error: "Could not parse AI response" });
+      return;
+    }
+
+    // If prices are missing (e.g. no listed price), generate reasonable fallbacks
+    if (parsed.offerStrategy && priceNum > 0) {
+      const strat = parsed.offerStrategy as Record<string, Record<string, number>>;
+      if (!strat.aggressive?.price) strat.aggressive = { ...strat.aggressive, price: Math.round(priceNum * 0.91) };
+      if (!strat.recommended?.price) strat.recommended = { ...strat.recommended, price: Math.round(priceNum * 0.95) };
+      if (!strat.safe?.price) strat.safe = { ...strat.safe, price: Math.round(priceNum * 0.98) };
+    }
+
+    res.json({ raw: text, parsed });
   } catch (err) {
     req.log.error({ err }, "deal-intelligence failed");
     res.status(502).json({ error: "AI analysis failed" });

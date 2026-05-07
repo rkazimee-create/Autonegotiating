@@ -286,7 +286,7 @@ footer a{color:var(--orange);text-decoration:none}
       </div>
       <div id="vin-status" style="font-size:12px;color:var(--ink3);margin-top:6px;display:none"></div>
     </div>
-    <button class="analyze-btn" id="analyze-btn" onclick="openPaywallModal()">
+    <button class="analyze-btn" id="analyze-btn" onclick="runAnalysis()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       Analyze Deal Intelligence
     </button>
@@ -488,14 +488,14 @@ async function runAnalysis() {
   const make = document.getElementById('car-make').value.trim();
   const model = document.getElementById('car-model').value.trim();
   const trim = document.getElementById('car-trim').value.trim();
-  const msrp = parseFloat(document.getElementById('car-msrp').value) || 0;
+  const price = parseFloat(document.getElementById('car-msrp').value) || 0;
   const mileage = parseFloat(document.getElementById('car-mileage').value) || 0;
   const purchaseType = document.getElementById('purchase-type').value;
 
   if (!make || !model) { showError('Please enter at least a make and model.'); return; }
 
-  const conditionLabel = condition === 'cpo' ? 'Certified Pre-Owned' : condition === 'used' ? 'Used' : 'New';
   const vehicleLabel = [year, make, model, trim].filter(Boolean).join(' ');
+  const hist = window._listingHistory || {};
 
   document.getElementById('error-box').style.display = 'none';
   document.getElementById('results').style.display = 'none';
@@ -512,12 +512,55 @@ async function runAnalysis() {
   document.getElementById('stream-content').innerHTML = '<span class="cursor"></span>';
 
   try {
+    // First fetch comparables so we can pass market context to the AI
+    let marketAvg = 0, marketMin = 0, marketMax = 0, pricePosition = null;
+    try {
+      const compParams = new URLSearchParams();
+      if (make)      compParams.set('make', make);
+      if (model)     compParams.set('model', model);
+      if (trim)      compParams.set('trim', trim);
+      if (condition) compParams.set('condition', condition);
+      if (year)      compParams.set('year', year);
+      if (mileage > 0) compParams.set('mileage', String(mileage));
+      if (price > 0)   compParams.set('price', String(price));
+      const compRes = await fetch('/api/comparables?' + compParams.toString());
+      if (compRes.ok) {
+        const compData = await compRes.json();
+        const stats = compData.stats || {};
+        marketAvg = stats.avgPrice || 0;
+        marketMin = stats.minPrice || 0;
+        marketMax = stats.maxPrice || 0;
+        pricePosition = stats.pricePosition;
+        // Show comparables section and render immediately
+        document.getElementById('comparables-section').style.display = 'block';
+        document.getElementById('comp-loading').style.display = 'none';
+        document.getElementById('comparables-grid').style.display = 'none';
+        renderComparables(compData, price, mileage);
+      }
+    } catch(_) { /* comparables are non-blocking */ }
+
     const stepsPromise = animateSteps(12000);
+
+    const body = {
+      year, make, model, trim, condition,
+      price: price || undefined,
+      mileage: mileage || undefined,
+      purchaseType,
+      vin: window._currentVin || '',
+      accidents: hist.accidentCount !== undefined ? hist.accidentCount : undefined,
+      oneOwner: hist.oneOwner ? '1' : undefined,
+      ownerCount: hist.ownerCount || undefined,
+      usageType: hist.usageType || undefined,
+      marketAvg: marketAvg || undefined,
+      marketMin: marketMin || undefined,
+      marketMax: marketMax || undefined,
+      pricePosition: pricePosition !== null ? pricePosition : undefined,
+    };
 
     const response = await fetch('/api/deal-intelligence', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ vehicle: vehicleLabel, msrp, purchaseType, condition, mileage, conditionLabel, vin: window._currentVin || '' })
+      body: JSON.stringify(body)
     });
 
     if (!response.ok) {
@@ -533,18 +576,11 @@ async function runAnalysis() {
 
     const parsed = data.parsed || extractJSON(rawText);
     if (parsed) {
-      renderResults(parsed, vehicleLabel, msrp, purchaseType);
+      renderResults(parsed, vehicleLabel, price, purchaseType);
     } else {
-      renderFallback(vehicleLabel, msrp, purchaseType);
+      renderFallback(vehicleLabel, price, purchaseType);
     }
-    // Fetch nationwide comparables
-    const makeVal = document.getElementById('car-make').value;
-    const modelVal = document.getElementById('car-model').value;
-    const yearVal = document.getElementById('car-year').value;
-    const condVal = document.getElementById('car-condition').value;
-    const milVal = parseFloat(document.getElementById('car-mileage').value) || 0;
-    const trimVal = document.getElementById('car-trim').value.trim();
-    fetchComparables(makeVal, modelVal, condVal, milVal, msrp, parseInt(yearVal) || 0, trimVal);
+
     if (window._currentVin) fetchVinData(window._currentVin);
 
   } catch(e) {
@@ -1964,7 +2000,7 @@ async function generatePDF() {
         trimEl.disabled = false;
       }
     }
-    openPaywallModal();
+    runAnalysis();
   });
 })();
 </script>
