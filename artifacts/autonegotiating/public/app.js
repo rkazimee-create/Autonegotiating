@@ -107,6 +107,8 @@ function normalizeListing(l, idx) {
     history:        l.history   || null,
     recentPriceDrop: l.recentPriceDrop === true,
     pricePlusFees:  l.pricePlusFees || null,
+    daysOnLot:      l.createdAt ? Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000) : null,
+    createdAt:      l.createdAt || null,
     isLive:      true,
   };
 }
@@ -776,9 +778,12 @@ function renderGrid() {
     const photoCount = car.allPhotos && car.allPhotos.length > 1
       ? `<span style="position:absolute;top:8px;right:8px;background:rgba(26,26,24,0.55);color:#fff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;backdrop-filter:blur(2px);z-index:2">${car.allPhotos.length} photos</span>`
       : '';
+    const daysBadge = car.daysOnLot !== null && car.daysOnLot >= 30
+      ? `<span class="days-badge ${car.daysOnLot >= 60 ? 'hot' : 'warm'}">${car.daysOnLot >= 60 ? '⏰' : '🕐'} ${car.daysOnLot}d on lot</span>`
+      : '';
     return `
     <div class="car-card" onclick="openDetail(${escHtml(JSON.stringify(String(car.id)))})">
-      <div class="car-img">${imgHtml}${dropBadge}${photoCount}</div>
+      <div class="car-img">${imgHtml}${daysBadge}${dropBadge}${photoCount}</div>
       <div class="car-body">
         <span class="src-tag ${car.isLive?'live':'demo'}">${car.isLive?' LIVE':' DEMO'}</span>
         <div class="car-meta">
@@ -878,10 +883,14 @@ async function openDetail(carId) {
   ).join('');
 
   // Dealer rows
+  const daysOnLotStr = detailCar.daysOnLot !== null && detailCar.daysOnLot >= 0
+    ? (detailCar.daysOnLot === 0 ? 'Listed today' : detailCar.daysOnLot + ' days' + (detailCar.daysOnLot >= 60 ? ' ⏰ motivated seller' : detailCar.daysOnLot >= 30 ? ' — price negotiable' : ''))
+    : '';
   const dealerRows = [
     ['Dealer',   detailCar.dealer],
     ['Location', detailCar.dealerCity || ''],
     ['Distance', detailCar.distanceMi ? detailCar.distanceMi + ' miles' : ''],
+    ['Days on Lot', daysOnLotStr],
   ].filter(([,v]) => v).map(([l,v]) =>
     `<div class="detail-row"><span class="detail-row-label">${l}</span><span class="detail-row-val">${escHtml(String(v))}</span></div>`
   ).join('');
@@ -923,11 +932,48 @@ async function openDetail(carId) {
   // Fetch vehicle intelligence if we have a VIN
   if (detailCar.vin) {
     fetchVehicleIntelligence(detailCar.vin);
+    fetchPriceHistory(detailCar.vin);
   } else {
     document.getElementById('detail-intel-loading').style.display = 'none';
     document.getElementById('detail-intel-rows').innerHTML = '<div style="font-size:12px;color:var(--ink3)">No VIN available for market data.</div>';
     document.getElementById('detail-intel-rows').style.display = 'block';
   }
+}
+
+async function fetchPriceHistory(vin) {
+  try {
+    const res = await fetch('/api/price-history?vin=' + encodeURIComponent(vin));
+    if (!res.ok) return;
+    const data = await res.json();
+    renderPriceHistory(data.history || []);
+  } catch(e) {
+    // silently skip
+  }
+}
+
+function renderPriceHistory(history) {
+  const card = document.getElementById('detail-history-card');
+  const list = document.getElementById('detail-price-history');
+  if (!card || !list || history.length < 2) return;
+
+  // Only show if there were actual price changes
+  const prices = history.map(h => h.price);
+  const hasChanges = prices.some(p => p !== prices[0]);
+  if (!hasChanges) return;
+
+  card.style.display = 'block';
+  list.innerHTML = history.map((h, i) => {
+    const prev = i > 0 ? history[i - 1].price : null;
+    const delta = prev !== null ? h.price - prev : 0;
+    const cls = delta < 0 ? 'drop' : delta > 0 ? 'rise' : '';
+    const arrow = delta < 0 ? '↓' : delta > 0 ? '↑' : '';
+    const deltaStr = delta !== 0 ? ` ${arrow}${fmt(Math.abs(delta))}` : '';
+    const dateStr = new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `<div class="price-change">
+      <span class="price-change-date">${dateStr}</span>
+      <span class="price-change-val ${cls}">${fmt(h.price)}${deltaStr ? `<span style="font-size:10px;margin-left:4px">${deltaStr}</span>` : ''}</span>
+    </div>`;
+  }).join('');
 }
 
 function renderGallery(photos) {
