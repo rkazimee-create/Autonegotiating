@@ -234,6 +234,22 @@ footer a{color:var(--orange);text-decoration:none}
   .e-actions{flex-direction:column}
   .search-wrap{gap:6px}
 }
+
+/* Gallery keyboard nav — handled in app.js */
+
+/* Price Drop Badge */
+.price-drop-badge{position:absolute;bottom:8px;left:8px;background:#1D9E75;color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:20px;letter-spacing:0.4px;text-transform:uppercase;display:flex;align-items:center;gap:4px;box-shadow:0 2px 6px rgba(0,0,0,0.15);z-index:2}
+
+/* Gallery Nav */
+.gallery-nav-btn{position:absolute;top:50%;transform:translateY(-50%);background:rgba(26,26,24,0.55);color:#fff;border:none;width:36px;height:36px;border-radius:50%;font-size:20px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background 0.15s;z-index:5;backdrop-filter:blur(2px)}
+.gallery-nav-btn:hover{background:rgba(26,26,24,0.8)}
+.gallery-nav-btn.prev{left:10px}
+.gallery-nav-btn.next{right:10px}
+.gallery-counter{position:absolute;bottom:10px;right:10px;background:rgba(26,26,24,0.55);color:#fff;font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;backdrop-filter:blur(2px);z-index:5;pointer-events:none}
+
+/* Invoice / TMV row highlight */
+.detail-row-val.invoice{color:var(--success);font-weight:700}
+.invoice-note{font-size:10px;color:var(--ink3);margin-top:6px;padding:6px 8px;background:var(--success-light);border-radius:var(--radius-xs);border:1px solid rgba(29,158,117,0.2);line-height:1.5}
 </style>
 </head>
 <body>

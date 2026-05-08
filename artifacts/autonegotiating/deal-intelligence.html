@@ -47,6 +47,17 @@ nav{background:var(--white);border-bottom:1px solid var(--border);padding:0 2rem
 .analyze-btn:hover:not(:disabled){background:var(--orange-dark)}
 .analyze-btn:disabled{opacity:0.45;cursor:not-allowed}
 
+/* VIN Price Box */
+.vin-price-box{margin-top:10px;background:var(--success-light);border:1px solid rgba(29,158,117,0.25);border-radius:var(--radius-sm);padding:12px 14px}
+.vp-header{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:0.8px;text-transform:uppercase;color:var(--success);margin-bottom:8px}
+.vp-icon{font-size:14px}
+.vp-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid rgba(29,158,117,0.12);font-size:13px}
+.vp-row:last-of-type{border-bottom:none}
+.vp-label{color:var(--ink3)}
+.vp-val{font-weight:600;color:var(--ink)}
+.vp-val.highlight{color:var(--success);font-size:15px}
+.vp-tip{margin-top:8px;font-size:11px;color:var(--ink3);line-height:1.5;padding-top:8px;border-top:1px solid rgba(29,158,117,0.15)}
+
 /* STATES */
 .error-box{background:var(--danger-light);border:1px solid rgba(192,57,43,0.2);border-radius:var(--radius-sm);padding:0.875rem 1rem;color:var(--danger);margin-bottom:1rem;font-size:13px;display:none}
 
@@ -285,6 +296,7 @@ footer a{color:var(--orange);text-decoration:none}
         </button>
       </div>
       <div id="vin-status" style="font-size:12px;color:var(--ink3);margin-top:6px;display:none"></div>
+      <div id="vin-price-box" class="vin-price-box" style="display:none"></div>
     </div>
     <button class="analyze-btn" id="analyze-btn" onclick="runAnalysis()">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
@@ -994,12 +1006,46 @@ async function lookupVin() {
     const found = [year, make, model, trim].filter(Boolean).join(' ');
     showVinStatus('Found: ' + found, 'success');
 
+    // Show invoice / TMV pricing data if available
+    _showVinPricing(data.price || null, data.condition || null);
+
   } catch(e) {
     showVinStatus('Could not decode VIN: ' + e.message, 'error');
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg> Decode VIN';
   }
+}
+
+function _showVinPricing(price, condition) {
+  const box = document.getElementById('vin-price-box');
+  if (!box || !price) { if (box) box.style.display = 'none'; return; }
+
+  const invoice   = price.baseInvoice   || null;
+  const baseMsrp  = price.baseMsrp      || null;
+  const tmvRetail = price.usedTmvRetail || null;
+  const privParty = price.usedPrivateParty || null;
+  const tradeIn   = price.usedTradeIn   || null;
+
+  const fmt = n => '$' + Math.round(n).toLocaleString();
+  const rows = [];
+
+  if (invoice)   rows.push(`<div class="vp-row"><span class="vp-label">Dealer Invoice</span><span class="vp-val highlight">${fmt(invoice)}</span></div>`);
+  if (baseMsrp)  rows.push(`<div class="vp-row"><span class="vp-label">Base MSRP</span><span class="vp-val">${fmt(baseMsrp)}</span></div>`);
+  if (tmvRetail) rows.push(`<div class="vp-row"><span class="vp-label">Edmunds TMV Retail</span><span class="vp-val">${fmt(tmvRetail)}</span></div>`);
+  if (privParty) rows.push(`<div class="vp-row"><span class="vp-label">Private Party Value</span><span class="vp-val">${fmt(privParty)}</span></div>`);
+  if (tradeIn)   rows.push(`<div class="vp-row"><span class="vp-label">Trade-In Value</span><span class="vp-val">${fmt(tradeIn)}</span></div>`);
+
+  if (!rows.length) { box.style.display = 'none'; return; }
+
+  const tip = invoice
+    ? `<div class="vp-tip">Dealer invoice is what the dealer actually paid for this vehicle. For new cars, aim for 2–5% above invoice as your opening offer.</div>`
+    : tmvRetail
+      ? `<div class="vp-tip">Edmunds TMV is the fair market retail price based on real transactions in your area. Use this as your benchmark.</div>`
+      : '';
+
+  box.innerHTML = `<div class="vp-header"><span class="vp-icon">💰</span><span>Real Pricing Data</span></div>${rows.join('')}${tip}`;
+  box.style.display = 'block';
 }
 
 function showVinStatus(msg, type) {
