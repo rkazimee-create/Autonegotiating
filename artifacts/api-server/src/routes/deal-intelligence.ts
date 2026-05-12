@@ -20,6 +20,8 @@ router.post("/deal-intelligence", async (req, res): Promise<void> => {
     marketMin,
     marketMax,
     pricePosition,
+    avgDaysOnLot,
+    pctWithPriceDrop,
     purchaseType,
     vin,
   } = req.body as Record<string, string | number | boolean>;
@@ -43,6 +45,13 @@ router.post("/deal-intelligence", async (req, res): Promise<void> => {
       ? `Market avg: $${Number(marketAvg).toLocaleString()}, range $${Number(marketMin).toLocaleString()}–$${Number(marketMax).toLocaleString()}, price position: ${pricePosition ?? "unknown"}th percentile`
       : "No live market data — use your knowledge of this vehicle's current market pricing.";
 
+  const inventoryPressureStr = [
+    avgDaysOnLot ? `Comparable listings avg ${avgDaysOnLot} days on lot` : "",
+    pctWithPriceDrop ? `${pctWithPriceDrop}% of comparable listings have had a recent price drop` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+
   const historyStr = [
     oneOwner === "1" || oneOwner === true || oneOwner === "true" ? "1 owner" : ownerCount ? `${ownerCount} owners` : "",
     accidents && Number(accidents) > 0 ? `${accidents} accident(s) reported` : "No accidents reported",
@@ -64,6 +73,7 @@ Listed Price: ${priceStr}
 Mileage: ${mileageStr}
 Vehicle History: ${historyStr || "Unknown"}
 Market Data: ${marketStr}
+Inventory Pressure: ${inventoryPressureStr || "No live inventory data — use your knowledge of typical market velocity for this vehicle."}
 Purchase Type: ${purchaseLabel}
 VIN: ${vin || "not provided"}
 
@@ -115,8 +125,20 @@ Based on your knowledge of this vehicle's current market (KBB, CarGurus, Edmunds
     },
     "edmunds": {
       "tmv": <integer — Edmunds True Market Value>
-    }
+    },
+    "dealerInvoice": <integer — actual dealer invoice/cost for this vehicle; for new cars this is what the dealer paid the manufacturer; for used cars set to null>
   },
+  "incentives": [
+    {
+      "name": "<incentive name, e.g. 'Toyota Customer Cash' or 'Special APR'>",
+      "type": "<one of: Cash | APR | Lease | Loyalty | Military | College | Trade-In | CPO>",
+      "amount": <integer — dollar value of rebate/cash incentive, or 0 for APR/lease deals>,
+      "apr": "<string — e.g. '0.9% for 60 months' for APR offers, omit for cash>",
+      "description": "<1-2 sentences on who qualifies and how to apply>",
+      "expires": "<month and year, e.g. 'June 2025', or 'ongoing'>",
+      "stackable": <boolean — can it be combined with other incentives?>
+    }
+  ],
   "negotiationTips": [
     "<specific tip 1 for this vehicle/situation>",
     "<specific tip 2>",
@@ -134,13 +156,15 @@ Important:
 - The listed price is ${priceStr} — base your offer strategy around this actual number
 - Include 3-5 deal reports (deals array) from different community sources
 - Be specific to this vehicle model, not generic advice
-- If this is a new car, omit privateParty from kbb`;
+- If this is a new car, omit privateParty from kbb and populate dealerInvoice with a realistic estimate
+- For used/CPO cars, set fairMarketValue.dealerInvoice to null
+- Always include the incentives array — for new cars list all current manufacturer cash rebates, special APR offers, lease support, and loyalty/military/college bonuses you know about; for used cars include any applicable CPO benefits or dealer incentives; if truly none exist, return an empty array []`;
 
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
       contents: [{ role: "user", parts: [{ text: prompt }] }],
-      config: { maxOutputTokens: 8192 },
+      config: { maxOutputTokens: 8192, temperature: 0.2 },
     });
 
     const text = response.text ?? "";
