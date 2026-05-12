@@ -1,8 +1,34 @@
 import { Router, type IRouter } from "express";
 import { autodevGet } from "../lib/autodev";
 import { logger } from "../lib/logger";
+import { db, priceSnapshots } from "@workspace/db";
+import { sql } from "drizzle-orm";
 
 const router: IRouter = Router();
+
+function recordPriceSnapshots(listings: Array<Record<string, unknown>>) {
+  const today = new Date().toISOString().split("T")[0];
+  const records = listings
+    .filter((l) => l.vin && typeof l.priceUnformatted === "number" && (l.priceUnformatted as number) > 0)
+    .map((l) => ({
+      vin: l.vin as string,
+      price: Math.round(l.priceUnformatted as number),
+      priceDate: today,
+    }));
+
+  if (!records.length) return;
+
+  db.insert(priceSnapshots)
+    .values(records)
+    .onConflictDoUpdate({
+      target: [priceSnapshots.vin, priceSnapshots.priceDate],
+      set: {
+        price: sql`excluded.price`,
+        observedAt: sql`now()`,
+      },
+    })
+    .catch((err) => logger.warn({ err }, "price snapshot upsert failed"));
+}
 
 router.get("/inventory", async (req, res): Promise<void> => {
   const {
@@ -44,6 +70,14 @@ router.get("/inventory", async (req, res): Promise<void> => {
     if (trim) params.trim = trim;
 
     const data = await autodevGet("/listings", params);
+
+    // Fire-and-forget: record price snapshots for all returned listings
+    const dataObj = data as Record<string, unknown[]>;
+    const listings = dataObj.records || dataObj.listings || dataObj.data || [];
+    if (listings.length) {
+      recordPriceSnapshots(listings as Array<Record<string, unknown>>);
+    }
+
     res.json(data);
   } catch (err) {
     req.log.error({ err }, "inventory fetch failed");

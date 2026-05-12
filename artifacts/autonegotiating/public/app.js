@@ -103,8 +103,13 @@ function normalizeListing(l, idx) {
     drivetrain:  l.drivetrain || '',
     fuel:        l.fuelType || '',
     bodyStyle:   l.bodyStyle || l.bodyType || '',
-    carfaxUrl:   l.carfaxUrl || null,
-    history:     l.history   || null,
+    carfaxUrl:      l.vin ? `https://www.carfax.com/VehicleHistory/p/Report.cfx?partner=DEY_0&vin=${l.vin}` : (l.carfaxUrl || null),
+    autoCheckUrl:   l.vin ? `https://www.autocheck.com/vehiclehistory/?vin=${l.vin}` : null,
+    history:        l.history   || null,
+    recentPriceDrop: l.recentPriceDrop === true,
+    pricePlusFees:  l.pricePlusFees || null,
+    daysOnLot:      l.createdAt ? Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000) : null,
+    createdAt:      l.createdAt || null,
     isLive:      true,
   };
 }
@@ -768,9 +773,18 @@ function renderGrid() {
     const imgHtml = car.img
       ? `<img src="${escHtml(car.img)}" alt="${escHtml(car.name)}" loading="lazy" onerror="this.style.display='none'">`
       : `<div class="car-emoji-ph">${car.emoji}</div>`;
+    const dropBadge = car.recentPriceDrop
+      ? `<span class="price-drop-badge">↓ Price Dropped</span>`
+      : '';
+    const photoCount = car.allPhotos && car.allPhotos.length > 1
+      ? `<span style="position:absolute;top:8px;right:8px;background:rgba(26,26,24,0.55);color:#fff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;backdrop-filter:blur(2px);z-index:2">${car.allPhotos.length} photos</span>`
+      : '';
+    const daysBadge = car.daysOnLot !== null && car.daysOnLot >= 30
+      ? `<span class="days-badge ${car.daysOnLot >= 60 ? 'hot' : 'warm'}">${car.daysOnLot >= 60 ? '⏰' : '🕐'} ${car.daysOnLot}d on lot</span>`
+      : '';
     return `
     <div class="car-card" onclick="openDetail(${escHtml(JSON.stringify(String(car.id)))})">
-      <div class="car-img">${imgHtml}</div>
+      <div class="car-img">${imgHtml}${daysBadge}${dropBadge}${photoCount}</div>
       <div class="car-body">
         <span class="src-tag ${car.isLive?'live':'demo'}">${car.isLive?' LIVE':' DEMO'}</span>
         <div class="car-meta">
@@ -792,6 +806,17 @@ function renderGrid() {
           <button class="offer-btn" onclick="event.stopPropagation();openOffer(${escHtml(JSON.stringify(String(car.id)))})">Make an Offer </button>
           <a class="intel-btn" href="/deal-intelligence.html?${new URLSearchParams(Object.assign({vin:car.vin||'',year:car.year,make:car.name.split(' ')[0],model:car.name.split(' ').slice(1).join(' '),trim:car.trim||'',price:car.msrp||0,mileage:car.mileageRaw||0,condition:car.condition==='certified'?'cpo':(car.condition||'used')},car.history?{accidents:car.history.accidentCount||0,oneOwner:car.history.oneOwner?'1':'0',ownerCount:car.history.ownerCount||0,personalUse:car.history.personalUse?'1':'0',usageType:car.history.usageType||''}:{})).toString()}" onclick="event.stopPropagation()"> Intel</a>
         </div>
+        ${car.vin ? `<div class="card-history-links" onclick="event.stopPropagation()">
+          <a href="${car.carfaxUrl}" target="_blank" rel="noopener" class="history-link carfax-link">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Carfax
+          </a>
+          <span class="history-link-sep">·</span>
+          <a href="${car.autoCheckUrl}" target="_blank" rel="noopener" class="history-link autocheck-link">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            AutoCheck
+          </a>
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -832,6 +857,8 @@ function useDemoData() {
 
 //  DETAIL MODAL 
 let detailCar = null;
+let galleryPhotos = [];
+let galleryIdx = 0;
 
 async function openDetail(carId) {
   detailCar = allCars.find(c => String(c.id) === String(carId));
@@ -868,17 +895,29 @@ async function openDetail(carId) {
   ).join('');
 
   // Dealer rows
+  const daysOnLotStr = detailCar.daysOnLot !== null && detailCar.daysOnLot >= 0
+    ? (detailCar.daysOnLot === 0 ? 'Listed today' : detailCar.daysOnLot + ' days' + (detailCar.daysOnLot >= 60 ? ' ⏰ motivated seller' : detailCar.daysOnLot >= 30 ? ' — price negotiable' : ''))
+    : '';
   const dealerRows = [
     ['Dealer',   detailCar.dealer],
     ['Location', detailCar.dealerCity || ''],
     ['Distance', detailCar.distanceMi ? detailCar.distanceMi + ' miles' : ''],
+    ['Days on Lot', daysOnLotStr],
   ].filter(([,v]) => v).map(([l,v]) =>
     `<div class="detail-row"><span class="detail-row-label">${l}</span><span class="detail-row-val">${escHtml(String(v))}</span></div>`
   ).join('');
-  const carfaxBtn = detailCar.carfaxUrl
-    ? `<div style="margin-top:10px"><a href="${escHtml(detailCar.carfaxUrl)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;background:#c0392b;color:#fff;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;">📋 View Carfax Report</a></div>`
-    : '';
-  document.getElementById('detail-dealer-rows').innerHTML = dealerRows + carfaxBtn;
+  const historyBtns = detailCar.vin ? `
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="${escHtml(detailCar.carfaxUrl)}" target="_blank" rel="noopener" class="history-report-btn carfax-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Carfax Report
+      </a>
+      <a href="${escHtml(detailCar.autoCheckUrl)}" target="_blank" rel="noopener" class="history-report-btn autocheck-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        AutoCheck
+      </a>
+    </div>` : '';
+  document.getElementById('detail-dealer-rows').innerHTML = dealerRows + historyBtns;
 
   // Wire up Deal Intelligence button with car data
   const intelBtn = document.getElementById('btn-detail-intel');
@@ -913,6 +952,7 @@ async function openDetail(carId) {
   // Fetch vehicle intelligence if we have a VIN
   if (detailCar.vin) {
     fetchVehicleIntelligence(detailCar.vin);
+    fetchPriceHistory(detailCar.vin);
   } else {
     document.getElementById('detail-intel-loading').style.display = 'none';
     document.getElementById('detail-intel-rows').innerHTML = '<div style="font-size:12px;color:var(--ink3)">No VIN available for market data.</div>';
@@ -920,26 +960,55 @@ async function openDetail(carId) {
   }
 }
 
+async function fetchPriceHistory(vin) {
+  try {
+    const res = await fetch('/api/price-history?vin=' + encodeURIComponent(vin));
+    if (!res.ok) return;
+    const data = await res.json();
+    renderPriceHistory(data.history || []);
+  } catch(e) {
+    // silently skip
+  }
+}
+
+function renderPriceHistory(history) {
+  const card = document.getElementById('detail-history-card');
+  const list = document.getElementById('detail-price-history');
+  if (!card || !list || history.length < 2) return;
+
+  // Only show if there were actual price changes
+  const prices = history.map(h => h.price);
+  const hasChanges = prices.some(p => p !== prices[0]);
+  if (!hasChanges) return;
+
+  card.style.display = 'block';
+  list.innerHTML = history.map((h, i) => {
+    const prev = i > 0 ? history[i - 1].price : null;
+    const delta = prev !== null ? h.price - prev : 0;
+    const cls = delta < 0 ? 'drop' : delta > 0 ? 'rise' : '';
+    const arrow = delta < 0 ? '↓' : delta > 0 ? '↑' : '';
+    const deltaStr = delta !== 0 ? ` ${arrow}${fmt(Math.abs(delta))}` : '';
+    const dateStr = new Date(h.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    return `<div class="price-change">
+      <span class="price-change-date">${dateStr}</span>
+      <span class="price-change-val ${cls}">${fmt(h.price)}${deltaStr ? `<span style="font-size:10px;margin-left:4px">${deltaStr}</span>` : ''}</span>
+    </div>`;
+  }).join('');
+}
+
 function renderGallery(photos) {
-  var main = document.getElementById('gallery-main');
-  var thumbs = document.getElementById('gallery-thumbs');
-  var img = document.createElement('img');
-  img.src = photos[0];
-  img.alt = 'Vehicle photo';
-  img.style.width = '100%';
-  img.style.height = '100%';
-  img.style.objectFit = 'cover';
-  img.style.display = 'block';
-  img.onerror = function() { this.style.display = 'none'; };
-  main.innerHTML = '';
-  main.appendChild(img);
+  galleryPhotos = photos.slice(0, 30);
+  galleryIdx = 0;
+  _renderGalleryFrame();
+
+  const thumbs = document.getElementById('gallery-thumbs');
   thumbs.innerHTML = '';
-  if (photos.length > 1) {
-    photos.slice(0, 30).forEach(function(url, i) {
-      var div = document.createElement('div');
+  if (galleryPhotos.length > 1) {
+    galleryPhotos.forEach(function(url, i) {
+      const div = document.createElement('div');
       div.className = i === 0 ? 'gallery-thumb active' : 'gallery-thumb';
-      div.onclick = function() { switchPhoto(url, div); };
-      var tImg = document.createElement('img');
+      div.onclick = function() { galleryGoTo(i); };
+      const tImg = document.createElement('img');
       tImg.src = url;
       tImg.alt = 'Photo ' + (i + 1);
       tImg.loading = 'lazy';
@@ -949,14 +1018,61 @@ function renderGallery(photos) {
     });
   }
 }
+
+function _renderGalleryFrame() {
+  const main = document.getElementById('gallery-main');
+  main.style.position = 'relative';
+  main.innerHTML = '';
+
+  const img = document.createElement('img');
+  img.src = galleryPhotos[galleryIdx];
+  img.alt = 'Vehicle photo ' + (galleryIdx + 1);
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
+  img.onerror = function() { this.style.display = 'none'; };
+  main.appendChild(img);
+
+  if (galleryPhotos.length > 1) {
+    const prev = document.createElement('button');
+    prev.className = 'gallery-nav-btn prev';
+    prev.innerHTML = '&#8249;';
+    prev.onclick = function(e) { e.stopPropagation(); galleryGo(-1); };
+    main.appendChild(prev);
+
+    const next = document.createElement('button');
+    next.className = 'gallery-nav-btn next';
+    next.innerHTML = '&#8250;';
+    next.onclick = function(e) { e.stopPropagation(); galleryGo(1); };
+    main.appendChild(next);
+
+    const counter = document.createElement('div');
+    counter.className = 'gallery-counter';
+    counter.textContent = (galleryIdx + 1) + ' / ' + galleryPhotos.length;
+    main.appendChild(counter);
+  }
+}
+
+function galleryGo(dir) {
+  galleryIdx = (galleryIdx + dir + galleryPhotos.length) % galleryPhotos.length;
+  _renderGalleryFrame();
+  const thumbs = document.querySelectorAll('.gallery-thumb');
+  thumbs.forEach(function(t, i) { t.classList.toggle('active', i === galleryIdx); });
+  const activeTh = thumbs[galleryIdx];
+  if (activeTh) activeTh.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+}
+
+function galleryGoTo(idx) {
+  galleryIdx = idx;
+  _renderGalleryFrame();
+  document.querySelectorAll('.gallery-thumb').forEach(function(t, i) { t.classList.toggle('active', i === idx); });
+}
+
 function switchPhoto(url, thumbEl) {
+  const idx = galleryPhotos.indexOf(url);
+  if (idx >= 0) { galleryGoTo(idx); return; }
   const img = document.createElement('img');
   img.src = url;
   img.alt = 'Vehicle photo';
-  img.style.width = '100%';
-  img.style.height = '100%';
-  img.style.objectFit = 'cover';
-  img.style.display = 'block';
+  img.style.cssText = 'width:100%;height:100%;object-fit:cover;display:block';
   img.onerror = function() { this.style.display = 'none'; };
   const main = document.getElementById('gallery-main');
   main.innerHTML = '';
@@ -978,10 +1094,15 @@ async function fetchVehicleIntelligence(vin) {
       price:     detailCar.msrp || 0,
       mileage:   detailCar.mileageRaw || 0,
     });
-    const res = await fetch('/api/comparables?' + params.toString());
-    if (!res.ok) throw new Error('No data');
-    const data = await res.json();
-    renderIntelligence(data);
+    const [compResult, vinResult] = await Promise.allSettled([
+      fetch('/api/comparables?' + params.toString()),
+      vin ? fetch('/api/vin-decode?vin=' + encodeURIComponent(vin)) : Promise.reject(),
+    ]);
+    const compData = compResult.status === 'fulfilled' && compResult.value.ok
+      ? await compResult.value.json() : {};
+    const vinData  = vinResult.status  === 'fulfilled' && vinResult.value.ok
+      ? await vinResult.value.json()  : null;
+    renderIntelligence(compData, vinData);
   } catch(e) {
     document.getElementById('detail-intel-loading').style.display = 'none';
     document.getElementById('detail-intel-rows').innerHTML = '<div style="font-size:12px;color:var(--ink3)">Market data unavailable for this vehicle.</div>';
@@ -989,7 +1110,7 @@ async function fetchVehicleIntelligence(vin) {
   }
 }
 
-function renderIntelligence(data) {
+function renderIntelligence(data, vinData) {
   document.getElementById('detail-intel-loading').style.display = 'none';
   const rows = document.getElementById('detail-intel-rows');
 
@@ -997,18 +1118,19 @@ function renderIntelligence(data) {
   const stats = data.stats || {};
   const comps  = data.comparables || [];
 
-  if (!stats.count || stats.count === 0) {
-    rows.innerHTML = '<div style="font-size:12px;color:var(--ink3)">No comparable market data found for this vehicle.</div>';
-    rows.style.display = 'block';
-    return;
-  }
-
   const carPrice = detailCar.msrp || 0;
   const avg      = stats.avgPrice  || 0;
   const lo       = stats.minPrice  || 0;
   const hi       = stats.maxPrice  || 0;
   const vs       = carPrice && avg ? carPrice - avg : 0;
-  const pos      = stats.pricePosition; // % of comps cheaper than this listing
+  const pos      = stats.pricePosition;
+
+  // VIN price data
+  const invoice    = vinData?.price?.baseInvoice   || null;
+  const msrpVin    = vinData?.price?.baseMsrp      || null;
+  const tmvRetail  = vinData?.price?.usedTmvRetail || null;
+  const privParty  = vinData?.price?.usedPrivateParty || null;
+  const tradeIn    = vinData?.price?.usedTradeIn   || null;
 
   // Price position label
   let posLabel = '', posClass = '';
@@ -1019,7 +1141,38 @@ function renderIntelligence(data) {
     else                { posLabel = 'Above Market'; posClass = ''; }
   }
 
-  let html = [
+  let html = '';
+
+  // Invoice / TMV section (from VIN data) — show before market comparables
+  if (invoice || tmvRetail || privParty) {
+    if (invoice) {
+      const aboveInvoice = carPrice && invoice ? carPrice - invoice : null;
+      html += `<div class="detail-row"><span class="detail-row-label">Dealer Invoice</span><span class="detail-row-val invoice">${fmt(invoice)}</span></div>`;
+      if (aboveInvoice !== null) {
+        const aboveLabel = aboveInvoice >= 0 ? `+${fmt(aboveInvoice)} above invoice` : `${fmt(Math.abs(aboveInvoice))} below invoice`;
+        html += `<div class="detail-row"><span class="detail-row-label">List vs Invoice</span><span class="detail-row-val ${aboveInvoice > 0 ? '' : 'green'}">${aboveLabel}</span></div>`;
+      }
+    }
+    if (tmvRetail)  html += `<div class="detail-row"><span class="detail-row-label">Edmunds TMV Retail</span><span class="detail-row-val">${fmt(tmvRetail)}</span></div>`;
+    if (privParty)  html += `<div class="detail-row"><span class="detail-row-label">Private Party Value</span><span class="detail-row-val">${fmt(privParty)}</span></div>`;
+    if (tradeIn)    html += `<div class="detail-row"><span class="detail-row-label">Trade-In Value</span><span class="detail-row-val">${fmt(tradeIn)}</span></div>`;
+    if (invoice) {
+      html += `<div class="invoice-note">Dealer invoice is what the dealer paid. Target offers within 3–5% above invoice for new cars.</div>`;
+    }
+  }
+
+  if (!stats.count || stats.count === 0) {
+    if (!html) {
+      rows.innerHTML = '<div style="font-size:12px;color:var(--ink3)">No comparable market data found for this vehicle.</div>';
+      rows.style.display = 'block';
+      return;
+    }
+    rows.innerHTML = html;
+    rows.style.display = 'block';
+    return;
+  }
+
+  html += [
     avg    ? ['Market Avg Price',   fmt(avg)]                                                         : null,
     lo     ? ['Market Price Range', `${fmt(lo)} – ${fmt(hi)}`]                                        : null,
     vs && carPrice ? ['vs. Market Avg', vs > 0 ? `+${fmt(vs)} above` : `${fmt(Math.abs(vs))} below`, vs > 0 ? '' : 'green'] : null,
@@ -1034,7 +1187,6 @@ function renderIntelligence(data) {
   if (lo && hi && carPrice) {
     const range     = hi - lo || 1;
     const markerPct = Math.max(0, Math.min(100, ((carPrice - lo) / range) * 100));
-    const avgPct    = Math.max(0, Math.min(100, ((avg - lo) / range) * 100));
     html += `<div class="fair-price-bar" style="margin-top:10px">
       <div class="fair-price-label">This listing vs market range</div>
       <div class="fair-price-track" style="position:relative">
@@ -1202,7 +1354,14 @@ function copyEmail(){
   navigator.clipboard.writeText(full).then(()=>showToast(' Email copied!')).catch(()=>showToast(' Select and copy manually'));
 }
 function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
-document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal('email-overlay');closeModal('offer-overlay');}});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape'){closeModal('email-overlay');closeModal('offer-overlay');closeModal('detail-overlay');}
+  const detailOpen = !document.getElementById('detail-overlay').classList.contains('hidden');
+  if(detailOpen && galleryPhotos.length > 1){
+    if(e.key==='ArrowLeft')  galleryGo(-1);
+    if(e.key==='ArrowRight') galleryGo(1);
+  }
+});
 document.addEventListener('keydown',e=>{if(e.key==='Enter'&&document.activeElement.closest('.search-bar')){runSearch();}});
 
 //  INIT  show empty state, don't auto-search 
