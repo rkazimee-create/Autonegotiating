@@ -1,14 +1,7 @@
 import { Router, type IRouter } from "express";
-import Anthropic from "@anthropic-ai/sdk";
+import { ai } from "@workspace/integrations-gemini-ai";
 
 const router: IRouter = Router();
-
-function getClient(): Anthropic {
-  const baseURL = process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL;
-  const apiKey = process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-  if (!apiKey) throw new Error("No Anthropic API key configured");
-  return new Anthropic({ apiKey, ...(baseURL ? { baseURL } : {}) });
-}
 
 router.post("/deal-intelligence", async (req, res): Promise<void> => {
   const {
@@ -136,7 +129,7 @@ Based on your knowledge of this vehicle's current market (KBB, CarGurus, Edmunds
   "verdict": "<one of: Great Deal | Good Deal | Fair Deal | Overpriced>"
 }
 
-Important: 
+Important:
 - All prices should be realistic for the current market (${new Date().getFullYear()})
 - The listed price is ${priceStr} — base your offer strategy around this actual number
 - Include 3-5 deal reports (deals array) from different community sources
@@ -144,19 +137,17 @@ Important:
 - If this is a new car, omit privateParty from kbb`;
 
   try {
-    const client = getClient();
-    const message = await client.messages.create({
-      model: "claude-haiku-4-5",
-      max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      config: { maxOutputTokens: 8192 },
     });
 
-    const text =
-      message.content[0].type === "text" ? message.content[0].text : "";
+    const text = response.text ?? "";
 
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      req.log.error({ text }, "Claude response missing JSON");
+      req.log.error({ text }, "Gemini response missing JSON");
       res.status(502).json({ error: "Invalid AI response format" });
       return;
     }
@@ -165,12 +156,11 @@ Important:
     try {
       parsed = JSON.parse(jsonMatch[0]);
     } catch (parseErr) {
-      req.log.error({ text, parseErr }, "Claude JSON parse failed");
+      req.log.error({ text, parseErr }, "Gemini JSON parse failed");
       res.status(502).json({ error: "Could not parse AI response" });
       return;
     }
 
-    // If prices are missing (e.g. no listed price), generate reasonable fallbacks
     if (parsed.offerStrategy && priceNum > 0) {
       const strat = parsed.offerStrategy as Record<string, Record<string, number>>;
       if (!strat.aggressive?.price) strat.aggressive = { ...strat.aggressive, price: Math.round(priceNum * 0.91) };
