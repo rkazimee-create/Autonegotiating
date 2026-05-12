@@ -103,7 +103,8 @@ function normalizeListing(l, idx) {
     drivetrain:  l.drivetrain || '',
     fuel:        l.fuelType || '',
     bodyStyle:   l.bodyStyle || l.bodyType || '',
-    carfaxUrl:      l.carfaxUrl || null,
+    carfaxUrl:      l.vin ? `https://www.carfax.com/VehicleHistory/p/Report.cfx?partner=DEY_0&vin=${l.vin}` : (l.carfaxUrl || null),
+    autoCheckUrl:   l.vin ? `https://www.autocheck.com/vehiclehistory/?vin=${l.vin}` : null,
     history:        l.history   || null,
     recentPriceDrop: l.recentPriceDrop === true,
     pricePlusFees:  l.pricePlusFees || null,
@@ -805,6 +806,17 @@ function renderGrid() {
           <button class="offer-btn" onclick="event.stopPropagation();openOffer(${escHtml(JSON.stringify(String(car.id)))})">Make an Offer </button>
           <a class="intel-btn" href="/deal-intelligence.html?${new URLSearchParams(Object.assign({vin:car.vin||'',year:car.year,make:car.name.split(' ')[0],model:car.name.split(' ').slice(1).join(' '),trim:car.trim||'',price:car.msrp||0,mileage:car.mileageRaw||0,condition:car.condition==='certified'?'cpo':(car.condition||'used')},car.history?{accidents:car.history.accidentCount||0,oneOwner:car.history.oneOwner?'1':'0',ownerCount:car.history.ownerCount||0,personalUse:car.history.personalUse?'1':'0',usageType:car.history.usageType||''}:{})).toString()}" onclick="event.stopPropagation()"> Intel</a>
         </div>
+        ${car.vin ? `<div class="card-history-links" onclick="event.stopPropagation()">
+          <a href="${car.carfaxUrl}" target="_blank" rel="noopener" class="history-link carfax-link">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Carfax
+          </a>
+          <span class="history-link-sep">·</span>
+          <a href="${car.autoCheckUrl}" target="_blank" rel="noopener" class="history-link autocheck-link">
+            <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            AutoCheck
+          </a>
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
@@ -894,10 +906,18 @@ async function openDetail(carId) {
   ].filter(([,v]) => v).map(([l,v]) =>
     `<div class="detail-row"><span class="detail-row-label">${l}</span><span class="detail-row-val">${escHtml(String(v))}</span></div>`
   ).join('');
-  const carfaxBtn = detailCar.carfaxUrl
-    ? `<div style="margin-top:10px"><a href="${escHtml(detailCar.carfaxUrl)}" target="_blank" rel="noopener" style="display:inline-flex;align-items:center;gap:6px;background:#c0392b;color:#fff;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:600;text-decoration:none;">📋 View Carfax Report</a></div>`
-    : '';
-  document.getElementById('detail-dealer-rows').innerHTML = dealerRows + carfaxBtn;
+  const historyBtns = detailCar.vin ? `
+    <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="${escHtml(detailCar.carfaxUrl)}" target="_blank" rel="noopener" class="history-report-btn carfax-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Carfax Report
+      </a>
+      <a href="${escHtml(detailCar.autoCheckUrl)}" target="_blank" rel="noopener" class="history-report-btn autocheck-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        AutoCheck
+      </a>
+    </div>` : '';
+  document.getElementById('detail-dealer-rows').innerHTML = dealerRows + historyBtns;
 
   // Wire up Deal Intelligence button with car data
   const intelBtn = document.getElementById('btn-detail-intel');
